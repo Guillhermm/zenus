@@ -128,16 +128,36 @@ class AnthropicLLM:
         
         self.client = Anthropic(api_key=api_key)
         
-        # Get model from config.yaml, fallback to env var, then default
+        # Get model from config.yaml (read directly to avoid import issues)
+        config_model = None
+        config_max_tokens = None
+        
+        # Try to read config.yaml directly
         try:
-            from zenus_core.config.loader import get_config
-            config = get_config()
-            self.model = config.llm.model
-            self.max_tokens = config.llm.max_tokens
-        except Exception:
-            # Config failed, use environment variables or defaults
-            self.model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-            self.max_tokens = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096"))
+            import yaml
+            from pathlib import Path
+            
+            # Search for config.yaml in standard locations
+            config_paths = [
+                Path.cwd() / "config.yaml",
+                Path.home() / ".zenus" / "config.yaml",
+            ]
+            
+            for config_path in config_paths:
+                if config_path.exists():
+                    with open(config_path, 'r') as f:
+                        config_data = yaml.safe_load(f)
+                        if config_data and 'llm' in config_data:
+                            config_model = config_data['llm'].get('model')
+                            config_max_tokens = config_data['llm'].get('max_tokens')
+                            break
+        except Exception as e:
+            # Config read failed, will use fallbacks below
+            pass
+        
+        # Use config.yaml model if found, otherwise env var, otherwise default
+        self.model = config_model or os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        self.max_tokens = config_max_tokens or int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096"))
     
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         """
