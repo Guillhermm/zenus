@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Config System Integration**: LLM factory now properly reads from `config.yaml` with environment variable fallback for backwards compatibility
+  - Priority: config.yaml > ZENUS_LLM env var > default (anthropic)
+  - Enables proper YAML-based configuration instead of requiring .env files
+  
+- **Dynamic Model Router**: Router now only uses models that are actually configured/available
+  - Detects available providers by checking API keys and service availability
+  - Builds fallback chains dynamically based on what's configured
+  - No longer requires both Anthropic AND DeepSeek - works with any single model
+  - Prevents errors when only one LLM provider is configured
+  
+- **Robust JSON Extraction**: Enhanced JSON parsing to handle markdown-wrapped responses
+  - Strips ```json``` code fences automatically
+  - Better error messages showing exact parse failure location
+  - Prevents "invalid JSON" errors when LLMs wrap output in markdown
+  
+- **Observation Truncation**: Increased observation length limit from 300 to 2000 characters
+  - Enables LLM to see actual file content when reading LaTeX, config files, etc.
+  - Smart truncation shows beginning + end for very long outputs
+  - Fixes "No meaningful observations" issue in iterative mode
+  - Critical for complex multi-file tasks like book formatting
+
 ## [0.5.0] - 2026-02-27
 
 ### Added - Revolutionary Features

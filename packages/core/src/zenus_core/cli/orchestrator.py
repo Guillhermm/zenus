@@ -803,8 +803,14 @@ class Orchestrator:
                         elif len(result_str) < 10:
                             result_str = f"(output: {result_str})"
                         else:
-                            # Truncate long results but keep meaningful info
-                            result_str = result_str[:300] + "..." if len(result_str) > 300 else result_str
+                            # Truncate long results but keep MUCH more content
+                            # For file reads, we need substantial content to make sense of the data
+                            # Increased from 300 to 2000 to capture meaningful file content
+                            max_obs_length = 2000
+                            if len(result_str) > max_obs_length:
+                                # For very long results, show beginning and end
+                                half = (max_obs_length - 20) // 2
+                                result_str = result_str[:half] + "\n...(truncated)...\n" + result_str[-half:]
                         
                         observation = f"{step.tool}.{step.action}({', '.join(f'{k}={v}' for k, v in step.args.items())}) → {result_str}"
                         iteration_observations.append(observation)

@@ -17,7 +17,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 
 from zenus_core.brain.task_complexity import TaskComplexityAnalyzer, ComplexityScore
-from zenus_core.brain.llm.factory import get_llm
+from zenus_core.brain.llm.factory import get_llm, get_available_providers
 
 
 @dataclass
@@ -71,6 +71,16 @@ class ModelRouter:
         self.complexity_analyzer = TaskComplexityAnalyzer()
         self.enable_fallback = enable_fallback
         self.log_decisions = log_decisions
+        
+        # Detect available providers dynamically
+        self.available_providers = get_available_providers()
+        
+        # Build capability map only for available providers
+        self.available_capabilities = {
+            provider: self.MODEL_CAPABILITIES[provider]
+            for provider in self.available_providers
+            if provider in self.MODEL_CAPABILITIES
+        }
         
         # Stats file
         if stats_path is None:
@@ -218,6 +228,8 @@ class ModelRouter:
         """
         Build fallback chain from weakest to strongest
         
+        ONLY includes models that are actually configured/available.
+        
         Args:
             primary_model: Initially selected model
             max_fallbacks: Maximum number of fallbacks
@@ -225,26 +237,35 @@ class ModelRouter:
         Returns:
             List of model backends in order to try
         """
-        if not self.enable_fallback:
+        # If fallback disabled or only one model available, just use primary
+        if not self.enable_fallback or len(self.available_providers) <= 1:
             return [primary_model]
         
-        # Sort models by capability (weakest to strongest)
+        # Ensure primary model is available
+        if primary_model not in self.available_providers:
+            # Primary not available, use most powerful available model
+            primary_model = max(
+                self.available_capabilities.keys(),
+                key=lambda m: self.available_capabilities[m]
+            )
+        
+        # Sort ONLY available models by capability (weakest to strongest)
         available_models = sorted(
-            self.MODEL_CAPABILITIES.keys(),
-            key=lambda m: self.MODEL_CAPABILITIES[m]
+            self.available_capabilities.keys(),
+            key=lambda m: self.available_capabilities[m]
         )
         
         # Start with primary model
         chain = [primary_model]
         
         # Add more powerful models as fallbacks
-        primary_capability = self.MODEL_CAPABILITIES.get(primary_model, 0.5)
+        primary_capability = self.available_capabilities.get(primary_model, 0.5)
         
         for model in available_models:
             if model == primary_model:
                 continue
             
-            capability = self.MODEL_CAPABILITIES[model]
+            capability = self.available_capabilities[model]
             
             # Only add more powerful models
             if capability > primary_capability:

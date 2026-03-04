@@ -172,14 +172,48 @@ Return ONLY valid JSON matching the schema.
 
 
 def extract_json(text: str) -> dict:
-    """Extract JSON from text that might have markdown or extra content"""
+    """
+    Extract JSON from text that might have markdown or extra content
+    
+    Handles:
+    - Plain JSON
+    - JSON wrapped in ```json``` code fences
+    - JSON with surrounding text
+    """
+    # Strip markdown code fences if present
+    text = text.strip()
+    
+    # Remove ```json and ``` markers
+    if text.startswith("```json"):
+        text = text[7:]  # Remove ```json
+    elif text.startswith("```"):
+        text = text[3:]  # Remove ```
+    
+    if text.endswith("```"):
+        text = text[:-3]  # Remove trailing ```
+    
+    text = text.strip()
+    
+    # Try to find JSON object in the text
     start = text.find("{")
     end = text.rfind("}")
+    
     if start == -1 or end == -1:
         raise RuntimeError("No JSON object found in model output")
     
     snippet = text[start:end + 1]
-    return json.loads(snippet)
+    
+    try:
+        return json.loads(snippet)
+    except json.JSONDecodeError as e:
+        # If parsing fails, try to provide more helpful error
+        lines = snippet.split('\n')
+        error_context = '\n'.join(lines[max(0, e.lineno - 3):e.lineno + 2])
+        raise RuntimeError(
+            f"JSON parsing failed at line {e.lineno}, column {e.colno}:\n"
+            f"{e.msg}\n\n"
+            f"Context:\n{error_context}"
+        ) from e
 
 
 class DeepSeekLLM:
