@@ -1,12 +1,10 @@
-from dotenv import load_dotenv # type: ignore
+from dotenv import load_dotenv, find_dotenv # type: ignore
 import os
-from pathlib import Path
 from zenus_core.brain.llm.schemas import IntentIR
 
 
-# Load secrets from standard locations
-load_dotenv()  # Current directory
-load_dotenv(Path.home() / ".zenus" / ".env")  # User config directory
+# Load secrets - find_dotenv searches up directory tree for .env
+load_dotenv(find_dotenv(usecwd=True))
 
 
 SYSTEM_PROMPT = """

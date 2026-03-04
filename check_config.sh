@@ -4,20 +4,14 @@ echo "║   Zenus Configuration Check        ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 
-CONFIG_DIR="$HOME/.zenus"
-CONFIG_FILE="$CONFIG_DIR/config.yaml"
-SECRETS_FILE="$CONFIG_DIR/.env"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CONFIG_FILE="$PROJECT_DIR/config.yaml"
+SECRETS_FILE="$PROJECT_DIR/.env"
 
 echo "Checking configuration..."
 echo ""
-
-# Check directory
-if [ -d "$CONFIG_DIR" ]; then
-    echo "✓ Config directory exists: $CONFIG_DIR"
-else
-    echo "❌ Config directory missing: $CONFIG_DIR"
-    exit 1
-fi
+echo "Project directory: $PROJECT_DIR"
+echo ""
 
 # Check config.yaml
 if [ -f "$CONFIG_FILE" ]; then

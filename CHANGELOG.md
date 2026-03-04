@@ -11,14 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config System Integration**: LLM factory now properly reads from `config.yaml` with environment variable fallback for backwards compatibility
   - Priority: config.yaml > ZENUS_LLM env var > default (anthropic)
   - Enables proper YAML-based configuration instead of requiring .env files
-  - **CRITICAL FIX**: Load secrets from `~/.zenus/.env` explicitly (was only loading from current directory)
-  - All LLM backends now load from: current dir `.env` → `~/.zenus/.env` → project `.env`
+  - **CRITICAL FIX**: Use `find_dotenv(usecwd=True)` to search up directory tree for `.env`
+  - Works for both running from source (finds project `.env`) and system installs
+  - All LLM backends now properly locate secrets regardless of working directory
   
 - **Secure Install Script (Complete Rewrite)**: Fixed file creation bugs and added proper validation
   - **FIXED**: Config files now actually created (was silently failing)
   - **FIXED**: Explicit SKIP_CONFIG boolean logic (no more conditional edge cases)
-  - Creates `~/.zenus/config.yaml` for configuration (verified at end)
-  - Creates `~/.zenus/.env` for API keys (chmod 600, verified at end)
+  - **FIXED**: Creates `.env` and `config.yaml` in PROJECT directory (for running from source)
+  - Secrets stored in `PROJECT_DIR/.env` with chmod 600 (verified at end)
   - Asks for primary LLM provider with full setup flow
   - **NEW**: Optional fallback provider configuration (multi-provider support)
   - **NEW**: Collects API keys for all selected providers in one flow

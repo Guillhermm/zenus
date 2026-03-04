@@ -70,14 +70,13 @@ echo "  LLM Configuration"
 echo "════════════════════════════════════"
 echo ""
 
-# Config directory
-CONFIG_DIR="$HOME/.zenus"
-CONFIG_FILE="$CONFIG_DIR/config.yaml"
-SECRETS_FILE="$CONFIG_DIR/.env"
+# Config files locations
+# When running from source: .env in project directory
+# config.yaml can be in ~/.zenus/ for user preferences OR project directory
+SECRETS_FILE="$PROJECT_DIR/.env"
+CONFIG_FILE="$PROJECT_DIR/config.yaml"
 
-# Create config directory
-mkdir -p "$CONFIG_DIR"
-echo "✓ Config directory: $CONFIG_DIR"
+echo "Running from source, using project directory for config"
 
 # Check if already configured
 SKIP_CONFIG=false

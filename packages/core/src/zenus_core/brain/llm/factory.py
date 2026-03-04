@@ -5,7 +5,7 @@ Creates LLM instances based on configuration.
 Priority: config.yaml > environment variables (backwards compat)
 """
 
-from dotenv import load_dotenv # type: ignore
+from dotenv import load_dotenv, find_dotenv # type: ignore
 import os
 from pathlib import Path
 from typing import Optional
@@ -15,11 +15,9 @@ from zenus_core.brain.llm.deepseek_llm import DeepSeekLLM
 from zenus_core.brain.llm.anthropic_llm import AnthropicLLM
 from zenus_core.brain.llm.ollama_llm import OllamaLLM
 
-# Load secrets from standard locations
-# Priority: current dir .env > ~/.zenus/.env > project .env
-load_dotenv()  # Current directory
-load_dotenv(Path.home() / ".zenus" / ".env")  # User config
-load_dotenv(Path(__file__).parent.parent.parent.parent.parent / ".env")  # Project root
+# Load secrets - find_dotenv searches up the directory tree for .env
+# This works both for running from source and installed packages
+load_dotenv(find_dotenv(usecwd=True))
 
 def get_llm(force_provider: Optional[str] = None):
     """
