@@ -43,7 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Previous bug: Even with fallback disabled, router used entire providers list if they had keys
   - **CRITICAL FIX**: Removed singleton pattern from router - was caching old config
   - Router now reads fresh config on every request (picks up config changes without restart)
-  - Result: No more DeepSeek attempts when fallback is disabled
+  - **CRITICAL FIX**: TaskComplexityAnalyzer was hardcoded to recommend "deepseek" for simple tasks
+  - Router now configures complexity analyzer with ONLY available models
+  - If only one model available, uses it for all task complexities
+  - Added safety check: if complexity analyzer recommends unavailable model, uses primary instead
+  - Result: No more DeepSeek attempts when fallback is disabled (FINALLY FIXED)
   
 - **Robust JSON Extraction**: Enhanced JSON parsing to handle markdown-wrapped responses
   - Strips ```json``` code fences automatically

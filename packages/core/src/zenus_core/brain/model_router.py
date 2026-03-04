@@ -90,24 +90,24 @@ class ModelRouter:
         self.enable_fallback = enable_fallback
         self.log_decisions = log_decisions
         
+        # Get primary provider from config
+        try:
+            from zenus_core.config.loader import get_config
+            config = get_config()
+            self.primary_provider = config.llm.provider
+        except Exception:
+            self.primary_provider = "anthropic"
+        
         # Detect which providers have API keys
         available_with_keys = get_available_providers()
         
         # Determine which providers to use
         if not enable_fallback:
             # Fallback disabled: ONLY use the primary provider from config
-            try:
-                from zenus_core.config.loader import get_config
-                config = get_config()
-                primary_provider = config.llm.provider
-                # Only include primary if it has a key
-                if primary_provider in available_with_keys:
-                    self.available_providers = [primary_provider]
-                else:
-                    # Primary doesn't have key, use any available
-                    self.available_providers = available_with_keys[:1] if available_with_keys else []
-            except Exception:
-                # Config failed, use first available
+            if self.primary_provider in available_with_keys:
+                self.available_providers = [self.primary_provider]
+            else:
+                # Primary doesn't have key, use any available
                 self.available_providers = available_with_keys[:1] if available_with_keys else []
         elif fallback_providers:
             # Fallback enabled: use providers from config that have keys
@@ -126,6 +126,27 @@ class ModelRouter:
             if provider in self.MODEL_CAPABILITIES
         }
         
+        # Initialize complexity analyzer with only available models
+        # Use primary as both cheap and powerful if only one model available
+        if len(self.available_providers) >= 2:
+            # Sort by capability to get cheapest and most powerful
+            sorted_providers = sorted(
+                self.available_providers,
+                key=lambda p: self.available_capabilities.get(p, 0.5)
+            )
+            cheap = sorted_providers[0]
+            powerful = sorted_providers[-1]
+        elif len(self.available_providers) == 1:
+            # Only one model: use it for everything
+            cheap = powerful = self.available_providers[0]
+        else:
+            # No models available, use defaults (will fail later anyway)
+            cheap = powerful = self.primary_provider
+        
+        self.complexity_analyzer = TaskComplexityAnalyzer(
+            cheap_model=cheap,
+            powerful_model=powerful
+        )
         # Stats file
         if stats_path is None:
             stats_path = Path.home() / ".zenus" / "router_stats.json"
@@ -172,6 +193,20 @@ class ModelRouter:
             complexity.reasons.append(f"Forced model: {force_model}")
         else:
             selected_model = complexity.recommended_model
+        
+        # Safety check: ensure selected model is actually available
+        if selected_model not in self.available_providers:
+            # Fallback to primary or first available
+            if self.primary_provider in self.available_providers:
+                selected_model = self.primary_provider
+                complexity.reasons.append(f"Fallback to primary (original not available)")
+            elif self.available_providers:
+                selected_model = self.available_providers[0]
+                complexity.reasons.append(f"Using first available model")
+            else:
+                # No models available at all
+                selected_model = self.primary_provider
+                complexity.reasons.append(f"WARNING: No models available, using primary anyway")
         
         # Log decision
         if self.log_decisions:
