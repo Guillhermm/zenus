@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Config loader updated to find `config.yaml` in project directory (was only checking `zenus.yaml`)
   - **CRITICAL FIX**: When `fallback.enabled=false`, router now ONLY uses `llm.provider`, ignores `fallback.providers` list
   - Previous bug: Even with fallback disabled, router used entire providers list if they had keys
+  - **CRITICAL FIX**: Removed singleton pattern from router - was caching old config
+  - Router now reads fresh config on every request (picks up config changes without restart)
   - Result: No more DeepSeek attempts when fallback is disabled
   
 - **Robust JSON Extraction**: Enhanced JSON parsing to handle markdown-wrapped responses

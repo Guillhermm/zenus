@@ -425,13 +425,12 @@ class ModelRouter:
             print(f"  [Router] Failed to save stats: {e}")
 
 
-# Global router instance
-_router: Optional[ModelRouter] = None
-
-
 def get_router() -> ModelRouter:
-    """Get singleton router instance"""
-    global _router
-    if _router is None:
-        _router = ModelRouter()
-    return _router
+    """
+    Get router instance
+    
+    Note: Creates a new router each time to ensure config changes are picked up.
+    This is intentional - the overhead of reading config is minimal compared to
+    the bugs caused by stale singleton instances.
+    """
+    return ModelRouter()
