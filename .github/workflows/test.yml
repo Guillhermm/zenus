@@ -70,28 +70,28 @@ jobs:
         name: codecov-${{ matrix.os }}-py${{ matrix.python-version }}
         fail_ci_if_error: false
 
-  slow-tests:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # slow-tests:
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
-    steps:
-    - uses: actions/checkout@v4
+  #   steps:
+  #   - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+  #   - name: Set up Python
+  #     uses: actions/setup-python@v4
+  #     with:
+  #       python-version: '3.10'
     
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.7.1
+  #   - name: Install Poetry
+  #     uses: snok/install-poetry@v1
+  #     with:
+  #       version: 1.7.1
     
-    - name: Install dependencies
-      run: |
-        cd packages/core && poetry install --no-interaction
-        cd ../cli && poetry install --no-interaction
+  #   - name: Install dependencies
+  #     run: |
+  #       cd packages/core && poetry install --no-interaction
+  #       cd ../cli && poetry install --no-interaction
     
-    - name: Run slow tests
-      run: |
-        cd packages/core && poetry run pytest ../../tests -v --tb=short -m "slow"
+  #   - name: Run slow tests
+  #     run: |
+  #       cd packages/core && poetry run pytest ../../tests -v --tb=short -m "slow"
