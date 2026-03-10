@@ -124,67 +124,46 @@ class CommandInput(Container):
 
 class ExecutionLog(ScrollableContainer):
     """Live execution log viewer with real-time updates"""
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.log_text = "✓ Execution log ready. Enter a command below to get started.\n\n"
-    
+
     def compose(self) -> ComposeResult:
-        yield Static(self.log_text, id="execution-log")
-    
+        # markup=False so timestamps like [12:34:56] are never parsed as Rich tags
+        yield RichLog(id="execution-log", highlight=False, markup=False)
+
     def on_mount(self):
-        """Update display on mount"""
-        self.update_log()
-    
-    def update_log(self):
-        """Update the Static widget with current log text"""
-        log_widget = self.query_one("#execution-log", Static)
-        log_widget.update(self.log_text)
-    
+        log = self.query_one("#execution-log", RichLog)
+        log.write("✓ Execution log ready. Enter a command below to get started.")
+
     def show_spinner(self):
-        """Show loading spinner (no-op for now)"""
         pass
-    
+
     def hide_spinner(self):
-        """Hide loading spinner (no-op for now)"""
         pass
-    
+
     def add_execution(self, command: str, result: str, duration: float, success: bool):
-        """Add execution to log"""
+        """Append one execution entry to the log"""
+        log = self.query_one("#execution-log", RichLog)
         timestamp = datetime.now().strftime("%H:%M:%S")
         status_icon = "✓" if success else "✗"
-        
-        # Add to log text
-        self.log_text += f"[{timestamp}] {command} {status_icon} {duration:.1f}s\n"
-        
-        # Show result summary (first few lines)
+
+        log.write(f"[{timestamp}] {command}  {status_icon}  {duration:.1f}s")
+
         if result:
-            lines = result.split('\n')[:5]  # First 5 lines
-            for line in lines:
+            for line in result.split("\n")[:5]:
                 if line.strip():
-                    self.log_text += f"  → {line[:100]}\n"
+                    log.write(f"  → {line[:120]}")
         else:
-            # No result - show indicator
-            if success:
-                self.log_text += "  → (completed successfully, no output)\n"
-            else:
-                self.log_text += "  → (failed, no error message)\n"
-        
-        # Add blank line for readability
-        self.log_text += "\n"
-        
-        # Update display
-        self.update_log()
-    
+            log.write("  → (completed, no output)" if success else "  → (failed, no output)")
+
+        log.write("")  # blank separator
+
     def add_progress(self, message: str):
-        """Add progress message during execution"""
-        self.log_text += f"⏳ {message}\n"
-        self.update_log()
-    
+        log = self.query_one("#execution-log", RichLog)
+        log.write(f"⏳ {message}")
+
     def clear_log(self):
-        """Clear execution log"""
-        self.log_text = "✓ Log cleared.\n\n"
-        self.update_log()
+        log = self.query_one("#execution-log", RichLog)
+        log.clear()
+        log.write("✓ Log cleared.")
 
 
 class PatternSuggestion(Container):
@@ -234,39 +213,41 @@ class HistoryView(ScrollableContainer):
         """Load history from action tracker"""
         table = self.query_one("#history-table", DataTable)
         table.clear()
-        
+
         try:
             tracker = get_action_tracker()
             transactions = tracker.get_recent_transactions(limit=100)
-            
-            for txn in reversed(transactions):  # Most recent first
-                timestamp = txn.get('timestamp', 'Unknown')
-                
-                # Parse ISO timestamp
+
+            for txn in transactions:  # already DESC from DB
+                # Timestamp
+                raw_ts = txn.get("start_time", "")
                 try:
-                    dt = datetime.fromisoformat(timestamp)
-                    time_str = dt.strftime("%m/%d %H:%M")
-                except:
-                    time_str = timestamp[:16]
-                
-                # Get command
-                actions = txn.get('actions', [])
-                if actions:
-                    command = f"{actions[0]['tool']}.{actions[0]['operation']}"
-                else:
-                    command = "Unknown"
-                
-                # Filter by search
+                    time_str = datetime.fromisoformat(raw_ts).strftime("%m/%d %H:%M")
+                except Exception:
+                    time_str = raw_ts[:16] if raw_ts else "Unknown"
+
+                # Command — tracker stores the original user input
+                command = txn.get("user_input") or txn.get("intent_goal") or "Unknown"
+
+                # Filter
                 if search and search.lower() not in command.lower():
                     continue
-                
-                success = txn.get('success', True)
-                status = "✓" if success else "✗"
-                
-                duration = txn.get('duration', 0)
-                duration_str = f"{duration:.1f}s" if duration else "N/A"
-                
-                table.add_row(time_str, command, status, duration_str)
+
+                # Status
+                status_val = txn.get("status", "")
+                status = "✓" if status_val == "completed" else "✗"
+
+                # Duration from start/end
+                end_ts = txn.get("end_time", "")
+                try:
+                    dur = (
+                        datetime.fromisoformat(end_ts) - datetime.fromisoformat(raw_ts)
+                    ).total_seconds()
+                    duration_str = f"{dur:.1f}s"
+                except Exception:
+                    duration_str = "N/A"
+
+                table.add_row(time_str, command[:60], status, duration_str)
         except Exception as e:
             table.add_row("Error", f"Failed to load history: {e}", "", "")
 
@@ -476,16 +457,11 @@ class ZenusDashboard(App):
         super().__init__()
         self.title = "Zenus OS Dashboard"
         self.sub_title = "AI-Powered System Management"
-        
-        # Initialize Zenus orchestrator
-        self.orchestrator = Orchestrator(
-            adaptive=True,
-            use_memory=True,
-            use_sandbox=True,
-            show_progress=False,  # We'll handle progress in TUI
-            enable_parallel=True
-        )
-        
+
+        # Orchestrator is initialized asynchronously in on_mount to avoid
+        # blocking the UI before the first frame renders
+        self.orchestrator = None
+
         self.command_count = 0
         self.last_command = None
         self.last_result = None
@@ -518,19 +494,47 @@ class ZenusDashboard(App):
         
         yield Footer()
     
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         """Initialize after mounting"""
         # Hide pattern suggestion initially
         pattern = self.query_one("#pattern-suggestion", PatternSuggestion)
         pattern.display = False
-        
-        # Update status
+
+        # Show initializing state — TUI is already responsive at this point
         status_bar = self.query_one("#status-bar", StatusBar)
-        status_bar.update_status(0, "Ready ✓")
-        
-        # Focus input
+        status_bar.update_status(0, "Initializing... ⏳")
+
+        # Focus input so user can start typing immediately
         input_widget = self.query_one("#command-input", Input)
         input_widget.focus()
+
+        # Load the orchestrator in a background thread (imports LLM, config, etc.)
+        self.run_worker(self._init_orchestrator(), name="init-orchestrator")
+
+    async def _init_orchestrator(self) -> None:
+        """Create the Orchestrator in a thread pool so the UI stays responsive"""
+        loop = asyncio.get_event_loop()
+        status_bar = self.query_one("#status-bar", StatusBar)
+        try:
+            self.orchestrator = await loop.run_in_executor(
+                None,
+                lambda: Orchestrator(
+                    adaptive=True,
+                    use_memory=True,
+                    use_sandbox=True,
+                    show_progress=False,
+                    enable_parallel=True,
+                ),
+            )
+            # Show active model in sub-title if accessible
+            try:
+                model = self.orchestrator.llm.model
+                self.sub_title = f"Model: {model}"
+            except Exception:
+                pass
+            status_bar.update_status(0, "Ready ✓")
+        except Exception as e:
+            status_bar.update_status(0, f"Init error: {e}")
     
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses"""
@@ -574,10 +578,14 @@ class ZenusDashboard(App):
     
     def execute_command(self, dry_run: bool = False, iterative: bool = False):
         """Execute command in background worker"""
+        if self.orchestrator is None:
+            self.notify("Still initializing, please wait...", severity="warning")
+            return
+
         # Get command from input
         input_widget = self.query_one("#command-input", Input)
         command = input_widget.value.strip()
-        
+
         if not command:
             return
         
@@ -606,48 +614,36 @@ class ZenusDashboard(App):
     
     async def _execute_async(self, command: str, dry_run: bool, iterative: bool):
         """Execute command asynchronously"""
-        import sys
-        from io import StringIO
-        
         start_time = datetime.now()
         success = False
         result = ""
-        
-        def run_with_capture(cmd, is_dry, is_iter):
-            """Run orchestrator and capture stdout"""
-            old_stdout = sys.stdout
-            captured = StringIO()
-            sys.stdout = captured
-            
-            try:
-                if is_iter:
-                    summary = self.orchestrator.execute_iterative(
-                        cmd,
-                        max_iterations=12,
-                        dry_run=is_dry
-                    )
-                else:
-                    summary = self.orchestrator.execute_command(
-                        cmd,
-                        dry_run=is_dry,
-                        force_oneshot=True
-                    )
-                
-                output = captured.getvalue()
-                return output if output.strip() else summary
-            finally:
-                sys.stdout = old_stdout
-        
+
+        def run_command(cmd, is_dry, is_iter):
+            """Run orchestrator synchronously (called from thread pool)"""
+            if is_iter:
+                return self.orchestrator.execute_iterative(
+                    cmd,
+                    max_iterations=12,
+                    dry_run=is_dry,
+                )
+            else:
+                return self.orchestrator.execute_command(
+                    cmd,
+                    dry_run=is_dry,
+                    force_oneshot=True,
+                )
+
         try:
-            # Execute in thread pool with stdout capture
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                run_with_capture,
+                run_command,
                 command,
                 dry_run,
-                iterative
+                iterative,
             )
+            if result is None:
+                result = ""
             
             success = True
             self.last_result = result
@@ -678,10 +674,6 @@ class ZenusDashboard(App):
         try:
             exec_log = self.query_one("#execution-log-container", ExecutionLog)
             exec_log.hide_spinner()
-            
-            # DEBUG: Add directly to log text
-            exec_log.log_text += f"DEBUG: cmd={command[:30]}, result_len={len(result)}, success={success}\n"
-            
             exec_log.add_execution(command, result, duration, success)
         except Exception as e:
             # If log fails, at least update status bar with error

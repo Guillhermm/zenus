@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **TUI responsiveness**: `Orchestrator` init moved from `__init__` to an async background worker so the UI renders and accepts input immediately on launch
+- **TUI model display**: Sub-title now correctly shows the active model name read from `config.yaml` once the orchestrator finishes loading
+- **TUI execution log**: Replaced `Static` widget (which parsed `[HH:MM:SS]` as Rich markup tags) with `RichLog(markup=False)` so timestamped entries always render correctly
+- **TUI command results**: Removed thread-unsafe `sys.stdout` capture; orchestrator return value is used directly, so responses now appear in the Execution tab
+- **TUI history tab**: Fixed field name mismatches in `refresh_history()` (`timestamp`→`start_time`, `actions[0]['tool']`→`user_input`, `success`→`status=='completed'`)
+- **TUI early-command guard**: `execute_command()` now shows a warning notification if the orchestrator hasn't finished initializing instead of crashing
+
 ### Added
 - **GitHub Issues API in GitOps**: `GitOps` tool now supports full GitHub Issues workflow
   - `create_issue(repo, title, body, labels, milestone)` — creates a single issue
