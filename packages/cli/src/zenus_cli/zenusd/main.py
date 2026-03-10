@@ -28,10 +28,21 @@ def main():
     try:
         if command.mode == "help":
             router.show_help()
-        
+
         elif command.mode == "version":
             router.show_version()
-        
+
+        elif command.mode == "status":
+            from zenus_core.shell.commands import handle_status_command
+            handle_status_command(orchestrator)
+
+        elif command.mode == "model":
+            from zenus_core.shell.commands import handle_model_command
+            parts = (command.input_text or "status").split()
+            subcommand = parts[0]
+            args = parts[1:] if len(parts) > 1 else []
+            handle_model_command(subcommand, args)
+
         elif command.mode == "interactive":
             orchestrator.interactive_shell()
         
@@ -106,21 +117,30 @@ def main():
             # Direct execution
             dry_run = command.flags.get("dry_run", False)
             iterative = command.flags.get("iterative", False)
-            
+            force_provider = command.flags.get("force_provider")
+            force_model = command.flags.get("force_model")
+
+            # If --model given without --provider, embed it as an inline directive
+            # so the orchestrator's provider_override parser can infer the provider
+            input_text = command.input_text
+            if force_model and not force_provider:
+                input_text = f"--model {force_model} {input_text}"
+                force_provider = None  # let the parser infer it
+
             if iterative:
-                # Use iterative ReAct loop for complex tasks
                 result = orchestrator.execute_iterative(
-                    command.input_text,
+                    input_text,
                     max_iterations=10,
-                    dry_run=dry_run
+                    dry_run=dry_run,
+                    force_provider=force_provider,
                 )
             else:
-                # Standard one-shot execution
                 result = orchestrator.execute_command(
-                    command.input_text, 
-                    dry_run=dry_run
+                    input_text,
+                    dry_run=dry_run,
+                    force_provider=force_provider,
                 )
-            
+
             if result:
                 print(result)
     

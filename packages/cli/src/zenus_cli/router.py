@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 @dataclass
 class CLICommand:
     """Represents a parsed CLI command"""
-    mode: str  # 'interactive', 'direct', 'help', 'version'
+    mode: str  # 'interactive', 'direct', 'help', 'version', 'status', 'model'
     input_text: Optional[str] = None
     flags: dict = field(default_factory=dict)
 
@@ -43,16 +43,30 @@ class CommandRouter:
         # Check for flags
         dry_run = False
         iterative = False
+        force_provider: Optional[str] = None
+        force_model: Optional[str] = None
         filtered_args = []
-        
-        for arg in args:
+        i = 0
+        while i < len(args):
+            arg = args[i]
             if arg == "--dry-run":
                 dry_run = True
             elif arg == "--iterative":
                 iterative = True
+            elif arg in ("--provider", "-p") and i + 1 < len(args):
+                force_provider = args[i + 1]
+                i += 1
+            elif arg.startswith("--provider="):
+                force_provider = arg.split("=", 1)[1]
+            elif arg == "--model" and i + 1 < len(args):
+                force_model = args[i + 1]
+                i += 1
+            elif arg.startswith("--model="):
+                force_model = arg.split("=", 1)[1]
             else:
                 filtered_args.append(arg)
-        
+            i += 1
+
         args = filtered_args
         
         if not args or args[0] == "shell":
@@ -64,6 +78,15 @@ class CommandRouter:
         if args[0] in ("version", "--version", "-v"):
             return CLICommand(mode="version")
         
+        if args[0] == "status":
+            return CLICommand(mode="status")
+
+        if args[0] == "model":
+            return CLICommand(
+                mode="model",
+                input_text=" ".join(args[1:]) if len(args) > 1 else "status",
+            )
+
         if args[0] == "rollback":
             return CLICommand(
                 mode="rollback",
@@ -80,9 +103,14 @@ class CommandRouter:
         # Everything else is a direct command
         input_text = " ".join(args)
         return CLICommand(
-            mode="direct", 
+            mode="direct",
             input_text=input_text,
-            flags={"dry_run": dry_run, "iterative": iterative}
+            flags={
+                "dry_run": dry_run,
+                "iterative": iterative,
+                "force_provider": force_provider,
+                "force_model": force_model,
+            },
         )
 
     def show_help(self):
@@ -95,34 +123,51 @@ USAGE:
     zenus [OPTIONS] [COMMAND]
 
 COMMANDS:
-    shell               Start interactive REPL (default)
-    help                Show this help message
-    version             Show version information
-    rollback [N]        Rollback last N actions (default: 1)
-    history             Show command history and failures
-    <direct command>    Execute command immediately
+    shell                   Start interactive REPL (default)
+    status                  Show system status and active LLM config
+    model [status]          Show current provider/model configuration
+    model list              List all available models per provider
+    model set <p> [model]   Set default provider (and optionally model)
+    rollback [N]            Rollback last N actions (default: 1)
+    history                 Show command history and failures
+    help                    Show this help message
+    version                 Show version information
+    <direct command>        Execute command immediately
 
 OPTIONS:
-    --dry-run           Show plan but do not execute
-    --iterative         Use iterative ReAct loop (for complex tasks)
+    --dry-run               Show plan but do not execute
+    --iterative             Use iterative ReAct loop (for complex tasks)
+    --provider <name>       Use specific provider for this command only
+                              (anthropic, openai, deepseek, ollama)
+    --model <id>            Use specific model for this command only
 
 EXAMPLES:
-    zenus                                    # Start interactive shell
-    zenus shell                              # Same as above
-    zenus "list files in ~/Documents"        # Direct execution
-    zenus organize my downloads by type      # Direct execution (no quotes)
-    zenus --dry-run "delete all tmp files"   # Preview without executing
-    zenus --iterative "read LaTeX project and improve chapter 3"  # Multi-step execution
+    zenus                                         # Start interactive shell
+    zenus "list files in ~/Documents"             # Direct execution
+    zenus --dry-run "delete all tmp files"        # Preview without executing
+    zenus --provider deepseek "summarize this"    # Override provider once
+    zenus --model claude-opus-4-6 "refactor src"  # Override model once
+    zenus model set anthropic claude-opus-4-6     # Change default
+    zenus --iterative "read project and improve"  # Multi-step ReAct loop
 
-INTERACTIVE MODE:
-    zenus > --dry-run organize my downloads  # Preview in shell mode
-    zenus > --iterative read project         # Iterative mode in shell
-    zenus > organize my downloads            # Execute in shell mode
+INTERACTIVE SHELL SHORTCUTS:
+    @deepseek: your command    # Use deepseek for this command
+    use claude: your command   # Use anthropic for this command
+    --provider openai <cmd>    # Override provider in shell mode
+    model set deepseek         # Change default inside shell
+    status                     # Show status inside shell
 
-ENVIRONMENT:
-    ZENUS_LLM           LLM backend: 'openai' (default) or 'deepseek'
+PROVIDER ALIASES (for inline overrides):
+    anthropic, claude, sonnet, haiku, opus → anthropic
+    openai, gpt, chatgpt, o1, o3          → openai
+    deepseek                               → deepseek
+    ollama, local, llama                   → ollama
+
+CREDENTIALS:
+    ANTHROPIC_API_KEY   Anthropic (Claude) API key
     OPENAI_API_KEY      OpenAI API key
     DEEPSEEK_API_KEY    DeepSeek API key
+    (or set in config.yaml / .env)
 
 LOGS:
     Audit logs: ~/.zenus/logs/

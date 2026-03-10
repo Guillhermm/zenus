@@ -9,13 +9,14 @@ Polished with advanced features.
 from textual.app import App, ComposeResult
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
 from textual.widgets import (
-    Header, Footer, Static, Button, Input, 
+    Header, Footer, Static, Button, Input,
     DataTable, TabbedContent, TabPane, Log,
-    Label, ProgressBar, RichLog, LoadingIndicator
+    Label, ProgressBar, RichLog, LoadingIndicator, Select,
 )
 from textual.binding import Binding
 from textual.worker import Worker, WorkerState
 from textual.message import Message
+from textual.screen import ModalScreen
 from rich.text import Text
 from rich.table import Table as RichTable
 from rich.panel import Panel
@@ -30,6 +31,102 @@ from zenus_core.orchestrator import Orchestrator
 from zenus_core.memory.action_tracker import get_action_tracker
 from zenus_core.brain.pattern_detector import PatternDetector
 from zenus_core.memory.world_model import WorldModel
+
+
+PROVIDER_MODELS = {
+    "anthropic": [
+        ("claude-sonnet-4-6", "Sonnet 4.6 — balanced (recommended)"),
+        ("claude-opus-4-6",   "Opus 4.6 — most capable"),
+        ("claude-haiku-4-5",  "Haiku 4.5 — fastest"),
+    ],
+    "openai": [
+        ("gpt-4o",      "GPT-4o — flagship multimodal"),
+        ("gpt-4o-mini", "GPT-4o mini — fast & cheap"),
+        ("gpt-4.1",     "GPT-4.1 — long context"),
+        ("o3",          "o3 — frontier reasoning"),
+        ("o3-mini",     "o3-mini — fast reasoning"),
+        ("o4-mini",     "o4-mini — cost-efficient reasoning"),
+    ],
+    "deepseek": [
+        ("deepseek-chat",     "DeepSeek-V3 — general purpose"),
+        ("deepseek-reasoner", "DeepSeek-R1 — chain-of-thought"),
+    ],
+    "ollama": [
+        ("llama3.1:8b",      "Llama 3.1 8B — popular & capable"),
+        ("llama3.2:3b",      "Llama 3.2 3B — fast, low memory"),
+        ("qwen2.5:7b",       "Qwen 2.5 7B — excellent reasoning"),
+        ("qwen3:8b",         "Qwen 3 8B — latest generation"),
+        ("deepseek-r1:7b",   "DeepSeek-R1 7B — local reasoning"),
+        ("mistral:7b",       "Mistral 7B — fast & capable"),
+        ("phi4:14b",         "Phi-4 14B — Microsoft, efficient"),
+        ("gemma3:4b",        "Gemma 3 4B — Google, lightweight"),
+    ],
+}
+
+
+class ModelPickerScreen(ModalScreen):
+    """Modal screen for selecting provider and model."""
+
+    CSS = """
+    ModelPickerScreen {
+        align: center middle;
+    }
+    #model-picker-container {
+        width: 60;
+        height: auto;
+        max-height: 30;
+        background: $panel;
+        border: solid $primary;
+        padding: 1 2;
+    }
+    #provider-select { margin-bottom: 1; }
+    #model-select    { margin-bottom: 1; }
+    #picker-buttons  { height: 3; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+    ]
+
+    def __init__(self, current_provider: str = "anthropic", current_model: str = ""):
+        super().__init__()
+        self._current_provider = current_provider
+        self._current_model = current_model
+
+    def compose(self) -> ComposeResult:
+        provider_options = [(p, p) for p in PROVIDER_MODELS]
+        with Container(id="model-picker-container"):
+            yield Label("[bold]Select LLM Provider & Model[/bold]")
+            yield Select(
+                options=provider_options,
+                value=self._current_provider,
+                id="provider-select",
+            )
+            yield Select(
+                options=self._model_options(self._current_provider),
+                value=self._current_model or PROVIDER_MODELS[self._current_provider][0][0],
+                id="model-select",
+            )
+            with Horizontal(id="picker-buttons"):
+                yield Button("Apply", variant="primary", id="apply-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def _model_options(self, provider: str):
+        return [(mid, f"{mid}  —  {desc}") for mid, desc in PROVIDER_MODELS.get(provider, [])]
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "provider-select":
+            model_select = self.query_one("#model-select", Select)
+            new_opts = self._model_options(str(event.value))
+            model_select.set_options(new_opts)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "apply-btn":
+            provider = str(self.query_one("#provider-select", Select).value)
+            model = str(self.query_one("#model-select", Select).value)
+            self.dismiss((provider, model))
+        else:
+            self.dismiss(None)
 
 
 class StatusBar(Static):
@@ -451,8 +548,9 @@ class ZenusDashboard(App):
         Binding("f4", "tab('explain')", "Explain", show=True),
         Binding("f5", "refresh", "Refresh", show=True),
         Binding("ctrl+r", "rollback", "Rollback", show=True),
+        Binding("ctrl+m", "pick_model", "Model", show=True),
     ]
-    
+
     def __init__(self):
         super().__init__()
         self.title = "Zenus OS Dashboard"
@@ -461,6 +559,10 @@ class ZenusDashboard(App):
         # Orchestrator is initialized asynchronously in on_mount to avoid
         # blocking the UI before the first frame renders
         self.orchestrator = None
+
+        # Active provider/model override (None = use config.yaml defaults)
+        self.active_provider: Optional[str] = None
+        self.active_model: Optional[str] = None
 
         self.command_count = 0
         self.last_command = None
@@ -526,12 +628,17 @@ class ZenusDashboard(App):
                     enable_parallel=True,
                 ),
             )
-            # Show active model in sub-title if accessible
+            # Show active provider/model in sub-title
             try:
                 model = self.orchestrator.llm.model
-                self.sub_title = f"Model: {model}"
+                provider = self.orchestrator.router.primary_provider
+                self.sub_title = f"{provider} / {model}"
             except Exception:
-                pass
+                try:
+                    model = self.orchestrator.llm.model
+                    self.sub_title = f"Model: {model}"
+                except Exception:
+                    pass
             status_bar.update_status(0, "Ready ✓")
         except Exception as e:
             status_bar.update_status(0, f"Init error: {e}")
@@ -588,35 +695,38 @@ class ZenusDashboard(App):
 
         if not command:
             return
-        
+
         # Add to history
         command_input_container = self.query_one("#command-input-area", CommandInput)
         command_input_container.add_to_history(command)
-        
+
         # Clear input
         input_widget.value = ""
-        
+
         # Update status and show spinner
         status_bar = self.query_one("#status-bar", StatusBar)
         status_bar.update_status(last_result="Executing... ⏳")
-        
+
         exec_log = self.query_one("#execution-log-container", ExecutionLog)
         exec_log.show_spinner()
-        
+
         # Store for explain view
         self.last_command = command
-        
+
         # Run in background worker
         self.run_worker(
             self._execute_async(command, dry_run, iterative),
             name=f"execute-{datetime.now().timestamp()}"
         )
-    
+
     async def _execute_async(self, command: str, dry_run: bool, iterative: bool):
         """Execute command asynchronously"""
         start_time = datetime.now()
         success = False
         result = ""
+
+        # Session-level provider override set via Ctrl+M
+        session_provider = self.active_provider
 
         def run_command(cmd, is_dry, is_iter):
             """Run orchestrator synchronously (called from thread pool)"""
@@ -625,12 +735,14 @@ class ZenusDashboard(App):
                     cmd,
                     max_iterations=12,
                     dry_run=is_dry,
+                    force_provider=session_provider,
                 )
             else:
                 return self.orchestrator.execute_command(
                     cmd,
                     dry_run=is_dry,
                     force_oneshot=True,
+                    force_provider=session_provider,
                 )
 
         try:
@@ -752,6 +864,41 @@ class ZenusDashboard(App):
         # TODO: Implement rollback via action_tracker
         status_bar = self.query_one("#status-bar", StatusBar)
         status_bar.update_status(last_result="Rollback not yet implemented")
+
+    async def action_pick_model(self) -> None:
+        """Open model picker modal (Ctrl+M)."""
+        current_provider = self.active_provider or "anthropic"
+        current_model = self.active_model or ""
+
+        result = await self.push_screen_wait(
+            ModelPickerScreen(current_provider, current_model)
+        )
+
+        if result is None:
+            return  # Cancelled
+
+        provider, model = result
+        self.active_provider = provider
+        self.active_model = model
+
+        # Update subtitle to reflect session override
+        self.sub_title = f"{provider} / {model}  [session override]"
+
+        # Persist as the new default in config.yaml
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: self._save_model_to_config(provider, model),
+            )
+            self.notify(f"Default set to {provider}/{model}", severity="information")
+        except Exception as e:
+            self.notify(f"Session override active. Config save failed: {e}", severity="warning")
+
+    @staticmethod
+    def _save_model_to_config(provider: str, model: str) -> None:
+        from zenus_core.shell.commands import _update_config_provider
+        _update_config_provider(provider, model)
 
 
 def main():

@@ -190,17 +190,23 @@ class Orchestrator:
                 self.logger.log_error("Visualization requested but matplotlib not installed. Install with: poetry add matplotlib numpy")
     
     def execute_command(
-        self, 
-        user_input: str, 
+        self,
+        user_input: str,
         dry_run: bool = False,
         explain: bool = False,
-        force_oneshot: bool = False
+        force_oneshot: bool = False,
+        force_provider: Optional[str] = None,
     ) -> str:
         """
         Execute a natural language command
-        
+
         Automatically detects if task needs iterative execution.
-        
+        Pass force_provider to bypass complexity-based routing and use a
+        specific LLM provider for this single command without changing defaults.
+        Inline directives (@deepseek:, --provider X, use claude:, etc.) are
+        parsed automatically from user_input before routing.
+
+
         Args:
             user_input: Natural language command
             dry_run: If True, show plan without executing
@@ -212,8 +218,19 @@ class Orchestrator:
         """
         import time
         start_time = time.time()
-        
+
         try:
+            # Parse inline provider/model override directives from user input
+            # e.g. "@deepseek: do X", "--provider openai do X", "use claude: do X"
+            from zenus_core.brain.provider_override import parse_provider_override, describe_override
+            _clean, _detected_provider, _detected_model = parse_provider_override(user_input)
+            if _detected_provider or _detected_model:
+                user_input = _clean
+                if not force_provider and _detected_provider:
+                    force_provider = _detected_provider
+                label = describe_override(force_provider, _detected_model)
+                console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
+
             # Step 0: Analyze task complexity (auto-detect iterative need)
             if not force_oneshot:
                 task_complexity = self.task_analyzer.analyze(user_input)
@@ -267,7 +284,7 @@ class Orchestrator:
                                 console.print("[dim]Auto-accepting suggested workflow[/dim]\n")
             
             # Step 1.6: Route to appropriate model based on complexity
-            selected_model, complexity = self.router.route(user_input, iterative=False)
+            selected_model, complexity = self.router.route(user_input, iterative=False, force_model=force_provider)
             
             # Show routing decision (if not simple)
             if complexity.score > 0.5 and self.show_progress:
@@ -687,11 +704,12 @@ class Orchestrator:
         self,
         user_input: str,
         max_iterations: int = 12,
-        dry_run: bool = False
+        dry_run: bool = False,
+        force_provider: Optional[str] = None,
     ) -> str:
         """
         Execute a command with iterative ReAct loop
-        
+
         This method implements the ReAct (Reasoning + Acting) pattern:
         1. Plan based on current context
         2. Execute plan
@@ -699,27 +717,38 @@ class Orchestrator:
         4. Check if goal achieved
         5. If not, re-plan with new observations
         6. Repeat until goal achieved (automatically continues in batches of max_iterations)
-        
+
         Args:
             user_input: Natural language command
             max_iterations: Batch size for iterations (default: 12)
             dry_run: If True, show plan without executing
-        
+            force_provider: Override routing and use this provider for all iterations
+
         Returns:
             Human-readable result
         """
         from zenus_core.brain.goal_tracker import GoalTracker
-        
+
+        # Parse inline provider override directives
+        from zenus_core.brain.provider_override import parse_provider_override, describe_override
+        _clean, _detected_provider, _detected_model = parse_provider_override(user_input)
+        if _detected_provider or _detected_model:
+            user_input = _clean
+            if not force_provider and _detected_provider:
+                force_provider = _detected_provider
+            label = describe_override(force_provider, _detected_model)
+            console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
+
         # Accumulator for observations
         all_observations = []
-        
+
         # Initial context from memory
         context = ""
         if self.use_memory:
             context = self._build_context(user_input)
-        
+
         # Route to appropriate model (iterative = likely complex)
-        selected_model, complexity = self.router.route(user_input, iterative=True)
+        selected_model, complexity = self.router.route(user_input, iterative=True, force_model=force_provider)
         
         # Set model for iterative execution
         import os
@@ -1194,7 +1223,15 @@ class Orchestrator:
                     args = parts[2:] if len(parts) > 2 else []
                     handle_workflow_command(self, subcommand, *args)
                     continue
-                
+
+                if user_input.startswith("model"):
+                    from zenus_core.shell.commands import handle_model_command
+                    parts = user_input.split()
+                    subcommand = parts[1] if len(parts) > 1 else "status"
+                    args = parts[2:] if len(parts) > 2 else []
+                    handle_model_command(subcommand, args)
+                    continue
+
                 # Check for --explain flag
                 explain = False
                 if "--explain" in user_input:

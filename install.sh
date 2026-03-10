@@ -116,21 +116,21 @@ if [ "$SKIP_CONFIG" = "false" ]; then
     echo ""
     echo "1) Anthropic Claude (recommended for complex tasks)"
     echo "   - Best reasoning and code generation"
-    echo "   - Latest: claude-3-5-sonnet-20241022"
+    echo "   - Models: claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5"
     echo "   - Cost: ~\$3/1M input tokens"
     echo ""
     echo "2) DeepSeek (best value)"
-    echo "   - Excellent code capabilities"
-    echo "   - Latest: deepseek-chat, deepseek-coder"
-    echo "   - Cost: ~\$0.14/1M tokens (20x cheaper)"
+    echo "   - Excellent code and reasoning capabilities"
+    echo "   - Models: deepseek-chat (V3), deepseek-reasoner (R1)"
+    echo "   - Cost: ~\$0.27/1M tokens (10x cheaper than Claude)"
     echo ""
-    echo "3) OpenAI (fast and reliable)"
-    echo "   - Latest: gpt-4o, o1-preview"
+    echo "3) OpenAI"
+    echo "   - Models: gpt-4o, gpt-4.1, o3, o4-mini"
     echo "   - Cost: ~\$2.50/1M input tokens"
     echo ""
     echo "4) Ollama (Local, FREE - privacy-first)"
-    echo "   - Runs on your hardware"
-    echo "   - Popular: llama3.2, qwen2.5, phi3"
+    echo "   - Runs on your hardware, no API key needed"
+    echo "   - Popular: llama3.1, qwen3, deepseek-r1, mistral"
     echo "   - Requires 4-16GB RAM"
     echo ""
 
@@ -155,17 +155,17 @@ if [ "$SKIP_CONFIG" = "false" ]; then
             
             echo ""
             echo "Choose Claude model:"
-            echo "1) claude-3-5-sonnet-20241022 (recommended - best reasoning)"
-            echo "2) claude-3-5-haiku-20241022 (fast - good for simple tasks)"
-            echo "3) claude-3-opus-20240229 (most capable - expensive)"
-            
+            echo "1) claude-sonnet-4-6  (recommended - best speed/intelligence balance)"
+            echo "2) claude-opus-4-6    (most capable - best for complex agents & coding)"
+            echo "3) claude-haiku-4-5   (fastest - near-frontier, great for simple tasks)"
+
             read -p "Enter choice [1-3]: " model_choice
-            
+
             case $model_choice in
-                1) PRIMARY_MODEL="claude-3-5-sonnet-20241022" ;;
-                2) PRIMARY_MODEL="claude-3-5-haiku-20241022" ;;
-                3) PRIMARY_MODEL="claude-3-opus-20240229" ;;
-                *) PRIMARY_MODEL="claude-3-5-sonnet-20241022" ;;
+                1) PRIMARY_MODEL="claude-sonnet-4-6" ;;
+                2) PRIMARY_MODEL="claude-opus-4-6" ;;
+                3) PRIMARY_MODEL="claude-haiku-4-5" ;;
+                *) PRIMARY_MODEL="claude-sonnet-4-6" ;;
             esac
             
             echo "✓ Anthropic configured with $PRIMARY_MODEL"
@@ -188,14 +188,14 @@ if [ "$SKIP_CONFIG" = "false" ]; then
             
             echo ""
             echo "Choose DeepSeek model:"
-            echo "1) deepseek-chat (recommended - general purpose)"
-            echo "2) deepseek-coder (specialized for code)"
-            
+            echo "1) deepseek-chat      (recommended - DeepSeek-V3, general purpose, 8K output)"
+            echo "2) deepseek-reasoner  (DeepSeek-R1, chain-of-thought reasoning, 64K output)"
+
             read -p "Enter choice [1-2]: " model_choice
-            
+
             case $model_choice in
                 1) PRIMARY_MODEL="deepseek-chat" ;;
-                2) PRIMARY_MODEL="deepseek-coder" ;;
+                2) PRIMARY_MODEL="deepseek-reasoner" ;;
                 *) PRIMARY_MODEL="deepseek-chat" ;;
             esac
             
@@ -219,18 +219,20 @@ if [ "$SKIP_CONFIG" = "false" ]; then
             
             echo ""
             echo "Choose OpenAI model:"
-            echo "1) gpt-4o (recommended - best overall)"
-            echo "2) gpt-4o-mini (fast and cheap)"
-            echo "3) o1-preview (advanced reasoning - slow)"
-            echo "4) o1-mini (reasoning - faster)"
-            
-            read -p "Enter choice [1-4]: " model_choice
-            
+            echo "1) gpt-4o        (recommended - flagship multimodal model)"
+            echo "2) gpt-4o-mini   (fast and cost-efficient)"
+            echo "3) gpt-4.1       (strong instruction-following, 1M context)"
+            echo "4) o3            (frontier reasoning - math, coding, science)"
+            echo "5) o4-mini       (cost-efficient reasoning)"
+
+            read -p "Enter choice [1-5]: " model_choice
+
             case $model_choice in
                 1) PRIMARY_MODEL="gpt-4o" ;;
                 2) PRIMARY_MODEL="gpt-4o-mini" ;;
-                3) PRIMARY_MODEL="o1-preview" ;;
-                4) PRIMARY_MODEL="o1-mini" ;;
+                3) PRIMARY_MODEL="gpt-4.1" ;;
+                4) PRIMARY_MODEL="o3" ;;
+                5) PRIMARY_MODEL="o4-mini" ;;
                 *) PRIMARY_MODEL="gpt-4o" ;;
             esac
             
@@ -277,21 +279,27 @@ if [ "$SKIP_CONFIG" = "false" ]; then
             echo "✓ Ollama service running"
             echo ""
             echo "Choose a model:"
-            echo "1) llama3.2:3b (recommended - fast, 2GB)"
-            echo "2) qwen2.5:7b (excellent reasoning, 4.7GB)"
-            echo "3) phi3:mini (efficient, 2.3GB)"
-            echo "4) mistral:7b (good balance, 4.1GB)"
-            echo "5) codellama:7b (code-focused, 3.8GB)"
-            
-            read -p "Enter choice [1-5]: " model_choice
-            
+            echo "1) llama3.1:8b      (recommended - most popular, great general model, ~5GB)"
+            echo "2) qwen3:8b         (Qwen 3 latest generation, excellent reasoning, ~5GB)"
+            echo "3) deepseek-r1:7b   (reasoning model, think-before-answer, ~4.7GB)"
+            echo "4) mistral:7b       (fast and capable, good for coding, ~4.1GB)"
+            echo "5) llama3.2:3b      (small & fast, low memory, ~2GB)"
+            echo "6) phi4:14b         (Microsoft Phi-4, efficient, ~8.5GB)"
+            echo "7) gemma3:4b        (Google Gemma 3, lightweight, ~3.3GB)"
+            echo "8) qwen2.5-coder:7b (code-specialized, ~4.7GB)"
+
+            read -p "Enter choice [1-8]: " model_choice
+
             case $model_choice in
-                1) PRIMARY_MODEL="llama3.2:3b" ;;
-                2) PRIMARY_MODEL="qwen2.5:7b" ;;
-                3) PRIMARY_MODEL="phi3:mini" ;;
+                1) PRIMARY_MODEL="llama3.1:8b" ;;
+                2) PRIMARY_MODEL="qwen3:8b" ;;
+                3) PRIMARY_MODEL="deepseek-r1:7b" ;;
                 4) PRIMARY_MODEL="mistral:7b" ;;
-                5) PRIMARY_MODEL="codellama:7b" ;;
-                *) PRIMARY_MODEL="llama3.2:3b" ;;
+                5) PRIMARY_MODEL="llama3.2:3b" ;;
+                6) PRIMARY_MODEL="phi4:14b" ;;
+                7) PRIMARY_MODEL="gemma3:4b" ;;
+                8) PRIMARY_MODEL="qwen2.5-coder:7b" ;;
+                *) PRIMARY_MODEL="llama3.1:8b" ;;
             esac
             
             echo "Pulling model $PRIMARY_MODEL (this may take a few minutes)..."

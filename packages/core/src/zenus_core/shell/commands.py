@@ -4,6 +4,7 @@ Special CLI Commands
 Built-in commands that don't go through intent translation.
 """
 
+import os
 import sys
 from zenus_core.memory.session_memory import SessionMemory
 from zenus_core.memory.world_model import WorldModel
@@ -12,37 +13,262 @@ from zenus_core.memory.intent_history import IntentHistory
 
 def handle_status_command(orchestrator):
     """Show Zenus status"""
-    print("\n╔════════════════════════════════════╗")
-    print("║        Zenus OS Status             ║")
-    print("╚════════════════════════════════════╝\n")
-    
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+    from zenus_core.brain.llm.factory import get_available_providers
+
+    console = Console()
+    console.print()
+    console.print(Panel.fit("[bold cyan]Zenus OS Status[/bold cyan]", border_style="cyan"))
+    console.print()
+
     # Session stats
     if orchestrator.use_memory:
-        session_stats = orchestrator.session_memory.get_session_stats()
-        print(f"Session Duration: {session_stats['session_duration_seconds']:.0f}s")
-        print(f"Commands Executed: {session_stats['total_intents']}")
-        print(f"Context References: {session_stats['context_refs']}")
-        print()
-    
-    # World model stats
+        try:
+            session_stats = orchestrator.session_memory.get_session_stats()
+            console.print(f"[bold]Session:[/bold] {session_stats['session_duration_seconds']:.0f}s  "
+                          f"| Commands: {session_stats['total_intents']}  "
+                          f"| Context refs: {session_stats['context_refs']}")
+        except Exception:
+            pass
+
+    # World model
     if orchestrator.use_memory:
         try:
             world_summary = orchestrator.world_model.get_summary()
-            print(world_summary)
-        except Exception as e:
-            print(f"World model: Error loading ({e})")
-        print()
-    
-    # LLM backend
-    import os
-    backend = os.getenv("ZENUS_LLM", "openai")
-    print(f"LLM Backend: {backend}")
-    
-    if backend == "ollama":
-        model = os.getenv("OLLAMA_MODEL", "phi3:mini")
-        print(f"Model: {model}")
-    
-    print()
+            if world_summary:
+                console.print(f"[bold]World:[/bold] {world_summary}")
+        except Exception:
+            pass
+
+    # LLM configuration (read from config.yaml, not env var)
+    console.print()
+    console.print("[bold]LLM Configuration:[/bold]")
+
+    primary_provider = "anthropic"
+    primary_model = None
+    fallback_enabled = False
+    fallback_providers: list = []
+
+    try:
+        from zenus_core.config.loader import get_config
+        cfg = get_config()
+        primary_provider = cfg.llm.provider
+        primary_model = cfg.llm.model
+        fallback_enabled = cfg.fallback.enabled
+        fallback_providers = list(cfg.fallback.providers) if cfg.fallback.providers else []
+    except Exception:
+        import os
+        primary_provider = os.getenv("ZENUS_LLM", "anthropic")
+
+    console.print(f"  Primary:  [cyan]{primary_provider}[/cyan]"
+                  + (f" / [dim]{primary_model}[/dim]" if primary_model else ""))
+
+    if fallback_enabled and fallback_providers:
+        chain = " → ".join(fallback_providers)
+        console.print(f"  Fallback: [dim]{chain}[/dim]")
+    else:
+        console.print("  Fallback: [dim]disabled[/dim]")
+
+    # Available providers (those with API keys configured)
+    console.print()
+    console.print("[bold]Available providers:[/bold]")
+    available = get_available_providers()
+
+    for prov in ["anthropic", "openai", "deepseek", "ollama"]:
+        has_key = prov in available
+        mark = "[green]✓[/green]" if has_key else "[red]✗[/red]"
+        active = " [bold cyan](primary)[/bold cyan]" if prov == primary_provider else ""
+        console.print(f"  {mark} {prov}{active}")
+
+    # Router stats if any
+    try:
+        stats = orchestrator.router.stats
+        if stats.get("total_requests", 0) > 0:
+            console.print()
+            console.print(f"[bold]Router stats:[/bold] "
+                          f"{stats['total_requests']} requests, "
+                          f"${stats.get('total_cost', 0):.4f} estimated cost")
+    except Exception:
+        pass
+
+    console.print()
+
+
+def handle_model_command(subcommand: str = "status", args: list = None):
+    """
+    Model management commands
+
+    Subcommands:
+        status (default) — show current provider/model config
+        list             — list all models by provider
+        set <provider> [model] — update config.yaml default
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from zenus_core.brain.llm.factory import get_available_providers
+
+    console = Console()
+    args = args or []
+
+    # Available models per provider (kept up-to-date)
+    MODELS = {
+        "anthropic": [
+            ("claude-opus-4-6",      "Most capable — complex agents & coding"),
+            ("claude-sonnet-4-6",    "Best speed/intelligence balance (recommended)"),
+            ("claude-haiku-4-5",     "Fastest, near-frontier intelligence"),
+        ],
+        "openai": [
+            ("gpt-4o",               "Flagship multimodal model"),
+            ("gpt-4o-mini",          "Fast and cost-efficient"),
+            ("gpt-4.1",              "Strong instruction-following, long context"),
+            ("gpt-4.1-mini",         "Smaller, cheaper GPT-4.1"),
+            ("o3",                   "Frontier reasoning — math, coding, science"),
+            ("o3-mini",              "Fast reasoning for STEM tasks"),
+            ("o4-mini",              "Cost-efficient reasoning"),
+        ],
+        "deepseek": [
+            ("deepseek-chat",        "DeepSeek-V3 — general purpose (recommended)"),
+            ("deepseek-reasoner",    "DeepSeek-R1 — chain-of-thought & reasoning"),
+        ],
+        "ollama": [
+            ("llama3.1:8b",          "Meta Llama 3.1 — most-pulled, great general model"),
+            ("llama3.2:3b",          "Small Llama 3.2 — fast, low memory (2GB)"),
+            ("qwen2.5:7b",           "Qwen 2.5 — excellent reasoning (4.7GB)"),
+            ("qwen3:8b",             "Qwen 3 — latest generation"),
+            ("deepseek-r1:7b",       "DeepSeek-R1 reasoning model (local)"),
+            ("mistral:7b",           "Mistral 7B — fast, capable"),
+            ("phi4:14b",             "Microsoft Phi-4 — efficient"),
+            ("gemma3:4b",            "Google Gemma 3 — lightweight"),
+        ],
+    }
+
+    if subcommand in ("status", ""):
+        # Show current config
+        primary_provider = "anthropic"
+        primary_model = None
+        fallback_enabled = False
+        fallback_providers: list = []
+
+        try:
+            from zenus_core.config.loader import get_config
+            cfg = get_config()
+            primary_provider = cfg.llm.provider
+            primary_model = cfg.llm.model
+            fallback_enabled = cfg.fallback.enabled
+            fallback_providers = list(cfg.fallback.providers) if cfg.fallback.providers else []
+        except Exception:
+            import os
+            primary_provider = os.getenv("ZENUS_LLM", "anthropic")
+
+        available = get_available_providers()
+
+        console.print()
+        console.print("[bold cyan]Current LLM configuration:[/bold cyan]")
+        console.print(f"  Provider: [cyan]{primary_provider}[/cyan]"
+                      + (f"  Model: [dim]{primary_model}[/dim]" if primary_model else ""))
+        if fallback_enabled and fallback_providers:
+            console.print(f"  Fallback: {' → '.join(fallback_providers)}")
+
+        console.print()
+        console.print("[bold]Available providers:[/bold]")
+        for prov in ["anthropic", "openai", "deepseek", "ollama"]:
+            mark = "[green]✓[/green]" if prov in available else "[red]✗[/red]"
+            tag = " [bold cyan](active)[/bold cyan]" if prov == primary_provider else ""
+            console.print(f"  {mark} {prov}{tag}")
+
+        console.print()
+        console.print("[dim]Change default: zenus model set <provider> [model][/dim]")
+        console.print("[dim]List all models: zenus model list[/dim]")
+        console.print("[dim]Per-command: @deepseek: your command  or  --provider deepseek your command[/dim]")
+        console.print()
+
+    elif subcommand == "list":
+        console.print()
+        available = get_available_providers()
+
+        for prov, models in MODELS.items():
+            has_key = prov in available
+            header = f"[bold cyan]{prov}[/bold cyan]"
+            if has_key:
+                header += " [green](configured)[/green]"
+            else:
+                header += " [dim](no API key)[/dim]"
+
+            table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2))
+            table.add_column("Model ID", style="cyan", no_wrap=True)
+            table.add_column("Description")
+
+            for model_id, desc in models:
+                table.add_row(model_id, desc)
+
+            console.print(header)
+            console.print(table)
+            console.print()
+
+    elif subcommand == "set":
+        if not args:
+            console.print("[red]Usage: model set <provider> [model][/red]")
+            console.print("[dim]Example: model set anthropic claude-opus-4-6[/dim]")
+            return
+
+        new_provider = args[0].lower()
+        new_model = args[1] if len(args) > 1 else None
+
+        # Validate provider
+        valid_providers = list(MODELS.keys())
+        if new_provider not in valid_providers:
+            console.print(f"[red]Unknown provider '{new_provider}'.[/red] "
+                          f"Valid: {', '.join(valid_providers)}")
+            return
+
+        # Write to config.yaml
+        _update_config_provider(new_provider, new_model)
+
+        label = new_provider + (f"/{new_model}" if new_model else "")
+        console.print(f"[green]✓ Default provider set to {label}[/green]")
+        console.print("[dim]Changes take effect on next command.[/dim]")
+
+    else:
+        console.print(f"[red]Unknown subcommand '{subcommand}'[/red]")
+        console.print("[dim]Usage: model [status|list|set][/dim]")
+
+
+def _update_config_provider(provider: str, model: str = None):
+    """Update llm.provider (and optionally llm.model) in the active config.yaml."""
+    import yaml
+    from pathlib import Path
+
+    # Find the config file that's actually loaded
+    search_paths = [
+        Path(os.environ.get("ZENUS_CONFIG", "")) if os.environ.get("ZENUS_CONFIG") else None,
+        Path("config.yaml"),
+        Path("zenus.yaml"),
+        Path.home() / ".zenus" / "config.yaml",
+        Path.home() / ".config" / "zenus" / "config.yaml",
+    ]
+    config_path = None
+    for p in search_paths:
+        if p and p.exists():
+            config_path = p
+            break
+
+    if not config_path:
+        raise FileNotFoundError("No config.yaml found. Run the install script first.")
+
+    with open(config_path) as f:
+        data = yaml.safe_load(f) or {}
+
+    if "llm" not in data:
+        data["llm"] = {}
+    data["llm"]["provider"] = provider
+    if model:
+        data["llm"]["model"] = model
+
+    with open(config_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 
 def handle_memory_command(orchestrator, subcommand: str = "stats"):

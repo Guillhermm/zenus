@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-command provider override**: Any command can target a specific LLM on-the-fly without changing defaults.
+  - Natural language: `@deepseek: summarize this`, `use claude: refactor src/`
+  - Flags: `--provider deepseek`, `--model claude-opus-4-6`
+  - Works in CLI direct mode, interactive shell, and TUI
+  - Provider inferred automatically from model name when using `--model`
+  - New `zenus_core.brain.provider_override` module handles all syntax variants
+- **CLI `zenus status`** subcommand: shows active provider/model from config.yaml, fallback chain, and available providers
+- **CLI `zenus model` subcommands**:
+  - `zenus model` / `zenus model status` — current provider/model and availability
+  - `zenus model list` — all models per provider with descriptions (current as of 2026)
+  - `zenus model set <provider> [model]` — update config.yaml default without editing the file
+  - Available inside interactive shell too: `model set anthropic claude-opus-4-6`
+- **TUI model picker** (`Ctrl+M`): modal dialog to select provider and model; updates config.yaml and applies for the session immediately
+- **Install script**: all model lists refreshed to current versions
+  - Anthropic: claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5
+  - DeepSeek: deepseek-chat (V3), deepseek-reasoner (R1)
+  - OpenAI: gpt-4o, gpt-4o-mini, gpt-4.1, o3, o4-mini
+  - Ollama: llama3.1, qwen3, deepseek-r1, mistral, llama3.2, phi4, gemma3, qwen2.5-coder
+
+### Fixed
+- **`zenus status` model display**: was reading `ZENUS_LLM` env var (defaulting to `openai`) instead of `config.yaml`
+
 ### Fixed
 - **TUI responsiveness**: `Orchestrator` init moved from `__init__` to an async background worker so the UI renders and accepts input immediately on launch
 - **TUI model display**: Sub-title now correctly shows the active model name read from `config.yaml` once the orchestrator finishes loading
