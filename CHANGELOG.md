@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`ShellOps` meta-tool** (`shell` escape hatch): Allows the LLM to run arbitrary shell commands as IntentIR steps. Every invocation is logged, attributed, and gated by privilege tier. Hard-blocked patterns (fork bombs, `rm -rf /`, etc.) are always rejected.
+- **`CodeExec` tool**: LLM can write and run Python snippets or Bash scripts as IntentIR steps. Code runs in an isolated subprocess; stdout/stderr feed back into the ReAct observation loop. Output is capped at 8 000 chars to prevent context blowout.
+- **Privilege tiers** (`PrivilegeTier`): `STANDARD` (default, automated contexts) vs `PRIVILEGED` (interactive sessions). `ShellOps` and `CodeExec` are only available at `PRIVILEGED` tier. Interactive shell auto-elevates on startup.
+- **Self-describing registry** (`registry.describe()` / `registry.describe_compact()`): Every tool exposes its actions with parameter types and docstrings. Lets the LLM introspect what's available and generate valid IntentIR steps without hallucinating tool names.
 - **Per-command provider override**: Any command can target a specific LLM on-the-fly without changing defaults.
   - Natural language: `@deepseek: summarize this`, `use claude: refactor src/`
   - Flags: `--provider deepseek`, `--model claude-opus-4-6`

@@ -48,9 +48,10 @@ from zenus_core.output.progress import ProgressIndicator
 from zenus_core.shell.response_generator import ResponseGenerator
 from zenus_core.shell.explain import ExplainMode
 from zenus_core.output.console import (
-    print_success, print_error, print_goal, 
+    print_success, print_error, print_goal,
     print_step, console
 )
+from zenus_core.tools.privilege import PrivilegeTier
 
 
 class IntentTranslationError(Exception):
@@ -87,8 +88,9 @@ class Orchestrator:
         enable_goal_inference: bool = True,
         enable_multi_agent: bool = False,  # Experimental feature
         enable_proactive_monitoring: bool = False,  # Experimental feature
-        enable_self_reflection: bool = True,  # NEW!
-        enable_visualization: bool = True  # NEW!
+        enable_self_reflection: bool = True,
+        enable_visualization: bool = True,
+        privilege_tier: PrivilegeTier = PrivilegeTier.STANDARD,
     ):
         self.llm = get_llm()
         self.logger = get_logger()
@@ -96,6 +98,7 @@ class Orchestrator:
         self.use_memory = use_memory
         self.use_sandbox = use_sandbox
         self.show_progress = show_progress
+        self.privilege_tier = privilege_tier
         
         if adaptive:
             if use_sandbox:
@@ -495,7 +498,7 @@ class Orchestrator:
                                 intent, max_retries=2
                             )
                         else:
-                            step_results = execute_plan(intent, self.logger)
+                            step_results = execute_plan(intent, self.logger, privilege_tier=self.privilege_tier)
                         update(len(intent.steps))  # Mark all complete
                     execution_success = True
                 else:
@@ -505,7 +508,7 @@ class Orchestrator:
                             intent, max_retries=2
                         )
                     else:
-                        step_results = execute_plan(intent, self.logger)
+                        step_results = execute_plan(intent, self.logger, privilege_tier=self.privilege_tier)
                     execution_success = True
                 
                 # Track each action for rollback
@@ -803,7 +806,7 @@ class Orchestrator:
                             intent, max_retries=2
                         )
                     else:
-                        step_results = execute_plan(intent, self.logger)
+                        step_results = execute_plan(intent, self.logger, privilege_tier=self.privilege_tier)
                     
                     # Step 3: Collect observations
                     for i, (step, result) in enumerate(zip(intent.steps, step_results), 1):
@@ -1104,6 +1107,9 @@ class Orchestrator:
     
     def interactive_shell(self):
         """Run interactive REPL mode"""
+        # Elevate to privileged tier — the user is present and can review actions
+        self.privilege_tier = PrivilegeTier.PRIVILEGED
+
         # Try to use enhanced shell (with tab completion, syntax highlighting)
         enhanced_shell = None
         try:

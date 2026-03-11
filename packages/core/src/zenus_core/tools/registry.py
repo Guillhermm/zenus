@@ -1,3 +1,6 @@
+import inspect
+from typing import Dict, Any
+
 from zenus_core.tools.file_ops import FileOps
 from zenus_core.tools.system_ops import SystemOps
 from zenus_core.tools.process_ops import ProcessOps
@@ -9,20 +12,108 @@ from zenus_core.tools.container_ops import ContainerOps
 from zenus_core.tools.git_ops import GitOps
 from zenus_core.tools.network_ops import NetworkOps
 from zenus_core.tools.vision_ops import VisionOps
+from zenus_core.tools.shell_ops import ShellOps
+from zenus_core.tools.code_exec import CodeExec
 
 TOOLS = {
     # Core tools
-    "FileOps": FileOps(),
-    "SystemOps": SystemOps(),
-    "ProcessOps": ProcessOps(),
-    "TextOps": TextOps(),
-    
+    "FileOps":      FileOps(),
+    "SystemOps":    SystemOps(),
+    "ProcessOps":   ProcessOps(),
+    "TextOps":      TextOps(),
+
     # Extended tools
-    "BrowserOps": BrowserOps(),
-    "PackageOps": PackageOps(),
-    "ServiceOps": ServiceOps(),
+    "BrowserOps":   BrowserOps(),
+    "PackageOps":   PackageOps(),
+    "ServiceOps":   ServiceOps(),
     "ContainerOps": ContainerOps(),
-    "GitOps": GitOps(),
-    "NetworkOps": NetworkOps(),
-    "VisionOps": VisionOps()
+    "GitOps":       GitOps(),
+    "NetworkOps":   NetworkOps(),
+    "VisionOps":    VisionOps(),
+
+    # Privileged tools (require PrivilegeTier.PRIVILEGED)
+    "ShellOps":     ShellOps(),
+    "CodeExec":     CodeExec(),
 }
+
+
+def describe() -> Dict[str, Any]:
+    """
+    Return a self-describing registry for LLM introspection.
+
+    The result maps each tool name to its public actions with parameter
+    signatures and docstrings.  This lets the LLM generate valid IntentIR
+    steps without hallucinating tool or action names.
+
+    Returns:
+        Dict of {tool_name: {doc, privileged, actions: [{name, doc, params}]}}
+    """
+    from zenus_core.tools.privilege import PRIVILEGED_TOOLS
+
+    registry: Dict[str, Any] = {}
+
+    for tool_name, tool_instance in TOOLS.items():
+        actions = []
+        tool_cls = type(tool_instance)
+        for attr_name in dir(tool_cls):
+            if attr_name.startswith("_"):
+                continue
+            if attr_name in ("name", "dry_run", "execute"):
+                continue
+            # Skip properties — accessing them via getattr may trigger lazy imports
+            is_property = any(
+                isinstance(klass.__dict__.get(attr_name), property)
+                for klass in tool_cls.__mro__
+                if attr_name in klass.__dict__
+            )
+            if is_property:
+                continue
+            method = getattr(tool_instance, attr_name, None)
+            if not callable(method):
+                continue
+
+            sig = inspect.signature(method)
+            params = {
+                name: (
+                    str(param.annotation)
+                    if param.annotation is not inspect.Parameter.empty
+                    else "any"
+                )
+                for name, param in sig.parameters.items()
+                if name != "self"
+            }
+            actions.append(
+                {
+                    "name": attr_name,
+                    "doc": (inspect.getdoc(method) or "").split("\n")[0],
+                    "params": params,
+                }
+            )
+
+        registry[tool_name] = {
+            "doc": (inspect.getdoc(tool_instance) or "").split("\n")[0],
+            "privileged": tool_name in PRIVILEGED_TOOLS,
+            "actions": actions,
+        }
+
+    return registry
+
+
+def describe_compact() -> str:
+    """
+    Return a compact text summary of the registry for use in LLM system prompts.
+
+    Format per tool:
+        ToolName [privileged?]: brief doc
+          - action(param: type, ...) — brief doc
+    """
+    lines: list[str] = []
+    for tool_name, info in describe().items():
+        tag = " [privileged]" if info["privileged"] else ""
+        lines.append(f"{tool_name}{tag}: {info['doc']}")
+        for action in info["actions"]:
+            param_str = ", ".join(
+                f"{p}: {t}" for p, t in action["params"].items()
+            )
+            lines.append(f"  - {action['name']}({param_str}) — {action['doc']}")
+    return "\n".join(lines)

@@ -7,12 +7,18 @@ Does NOT handle display or confirmation, that is the orchestrator's job.
 
 from typing import Optional, List
 from zenus_core.tools.registry import TOOLS
+from zenus_core.tools.privilege import PrivilegeTier, check_privilege
 from zenus_core.safety.policy import check_step, SafetyError
 from zenus_core.brain.llm.schemas import IntentIR
 from zenus_core.execution.error_handler import get_error_handler
 
 
-def execute_plan(intent: IntentIR, logger=None, parallel: bool = True) -> List[str]:
+def execute_plan(
+    intent: IntentIR,
+    logger=None,
+    parallel: bool = True,
+    privilege_tier: PrivilegeTier = PrivilegeTier.STANDARD,
+) -> List[str]:
     """
     Execute a validated IntentIR plan
     
@@ -78,6 +84,15 @@ def execute_plan(intent: IntentIR, logger=None, parallel: bool = True) -> List[s
                 logger.log_step_result(step.tool, step.action, error_msg, False)
             raise
         
+        # Privilege check (before tool lookup so the error is clear)
+        try:
+            check_privilege(step.tool, privilege_tier)
+        except PermissionError as e:
+            error_msg = str(e)
+            if logger:
+                logger.log_step_result(step.tool, step.action, error_msg, False)
+            raise SafetyError(error_msg) from e
+
         # Get tool
         tool = TOOLS.get(step.tool)
         if not tool:
