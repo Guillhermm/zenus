@@ -8,23 +8,8 @@ import os
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent
 
 from zenus_core.config.schema import ZenusConfig, Profile
-
-
-class ConfigFileHandler(FileSystemEventHandler):
-    """Watch config file for changes"""
-    
-    def __init__(self, loader: 'ConfigLoader'):
-        self.loader = loader
-    
-    def on_modified(self, event: FileModifiedEvent):
-        """Reload config when file modified"""
-        if event.src_path == str(self.loader.config_path):
-            print(f"🔄 Config file changed, reloading...")
-            self.loader._load_config()
 
 
 class ConfigLoader:
@@ -260,19 +245,25 @@ class ConfigLoader:
         """Start watching config file for changes"""
         try:
             from watchdog.observers import Observer
-            
+            from watchdog.events import FileSystemEventHandler, FileModifiedEvent
+
+            loader_ref = self
+
+            class ConfigFileHandler(FileSystemEventHandler):
+                def on_modified(self, event: FileModifiedEvent):
+                    if event.src_path == str(loader_ref.config_path):
+                        loader_ref._load_config()
+
             self.observer = Observer()
-            event_handler = ConfigFileHandler(self)
             self.observer.schedule(
-                event_handler,
+                ConfigFileHandler(),
                 str(self.config_path.parent),
-                recursive=False
+                recursive=False,
             )
             self.observer.start()
-            
+
         except ImportError:
-            print("⚠️  watchdog not installed, hot-reload disabled")
-            print("   Install with: pip install watchdog")
+            pass  # watchdog optional — hot-reload simply disabled
     
     def stop_watching(self):
         """Stop watching config file"""
