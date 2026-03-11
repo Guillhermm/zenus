@@ -7,13 +7,12 @@ Priority: config.yaml > environment variables (backwards compat)
 
 from dotenv import load_dotenv, find_dotenv # type: ignore
 import os
-from pathlib import Path
 from typing import Optional
-
 from zenus_core.brain.llm.openai_llm import OpenAILLM
 from zenus_core.brain.llm.deepseek_llm import DeepSeekLLM
 from zenus_core.brain.llm.anthropic_llm import AnthropicLLM
 from zenus_core.brain.llm.ollama_llm import OllamaLLM
+from zenus_core.config.loader import get_config
 
 # Load secrets - find_dotenv searches up the directory tree for .env
 # This works both for running from source and installed packages
@@ -39,11 +38,10 @@ def get_llm(force_provider: Optional[str] = None):
     model = None
     
     try:
-        from zenus_core.config.loader import get_config
         config = get_config()
         backend = config.llm.provider
         model = config.llm.model
-    except Exception as e:
+    except Exception:
         # Config loading failed, fall back to env vars
         pass
     
