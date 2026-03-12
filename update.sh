@@ -2,46 +2,42 @@
 set -e
 
 echo "╔════════════════════════════════════╗"
-echo "║   Zenus Update Script           ║"
+echo "║    Zenus Update Script             ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 
-# Get absolute path to project
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_DIR="$PROJECT_DIR/.venv"
+PIP="$VENV_DIR/bin/pip"
+
+if [ ! -f "$PIP" ]; then
+    echo "❌ Virtual environment not found. Run: ./install.sh"
+    exit 1
+fi
 
 echo "Updating Zenus packages..."
 echo ""
 
-# Update core package
+echo "→ Upgrading pip..."
+"$PIP" install --upgrade pip --quiet
+
 echo "→ Updating zenus-core..."
-cd "$PROJECT_DIR/packages/core"
-poetry install --no-interaction
+"$PIP" install -e "$PROJECT_DIR/packages/core" --quiet
 echo "✓ zenus-core updated"
-echo ""
 
-# Update CLI package
 echo "→ Updating zenus-cli..."
-cd "$PROJECT_DIR/packages/cli"
-poetry install --no-interaction
+"$PIP" install -e "$PROJECT_DIR/packages/cli" --quiet
 echo "✓ zenus-cli updated"
-echo ""
 
-# Update TUI package
 echo "→ Updating zenus-tui..."
-cd "$PROJECT_DIR/packages/tui"
-poetry install --no-interaction
+"$PIP" install -e "$PROJECT_DIR/packages/tui" --quiet
 echo "✓ zenus-tui updated"
+
 echo ""
-
-cd "$PROJECT_DIR"
-
 echo "════════════════════════════════════"
 echo "  Update Complete!"
 echo "════════════════════════════════════"
 echo ""
-echo "All packages updated with latest dependencies."
-echo ""
-echo "You can now use:"
-echo "  zenus                    # CLI"
-echo "  zenus-tui                # TUI"
+echo "  zenus              # CLI"
+echo "  zenus-tui          # TUI"
 echo ""
