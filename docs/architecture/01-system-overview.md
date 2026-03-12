@@ -11,7 +11,7 @@ graph TB
     User[User Input<br/>Voice/Text/CLI]
     Router[CLI Router]
     Orchestrator[Orchestrator]
-    LLM[LLM Backend<br/>OpenAI/DeepSeek]
+    LLM[LLM Backend<br/>Anthropic/OpenAI/DeepSeek/Ollama]
     IR[Intent IR<br/>Validated Schema]
     Planner[Adaptive Planner]
     Safety[Safety Policy]
@@ -40,9 +40,9 @@ graph TB
 - **Orchestrator**: Manage full pipeline, handle confirmations, coordinate execution
 
 ### Brain Layer
-- **LLM Backend**: Translate natural language to Intent IR
+- **LLM Backend**: Translate natural language to Intent IR (Anthropic, OpenAI, DeepSeek, Ollama)
 - **Planner**: Execute plans with observation and adaptation
-- **Memory**: Context retention and learning (future)
+- **Memory**: Session memory, world model, and intent history (implemented)
 
 ### Execution Layer
 - **Tools**: FileOps, SystemOps, ProcessOps with explicit contracts
@@ -93,7 +93,7 @@ Every operation has explicit risk level (0-3). High-risk operations require conf
 Every intent, plan, and execution is logged to `~/.zenus/logs/` in structured JSONL.
 
 ### 4. LLM Backend Agnostic
-Abstract interface allows swapping OpenAI, DeepSeek, or local models without changing core.
+Abstract interface allows swapping Anthropic, OpenAI, DeepSeek, or Ollama without changing core.
 
 ### 5. Tool Contracts
 Tools declare capabilities, arguments, and risk levels explicitly.
@@ -132,14 +132,3 @@ graph TB
     style Kernel fill:#868e96
 ```
 
-## Comparison: OpenClaw vs Zenus
-
-| Aspect | OpenClaw | Zenus |
-|--------|----------|----------|
-| Interaction | Conversational | Intent-driven |
-| Safety | Plugin marketplace | Formal contracts |
-| Execution | Flexible, async | Deterministic, validated |
-| Architecture | Agent + tools | OS layer + tools |
-| Focus | Task automation | System control |
-
-Zenus is not trying to be more flexible than OpenClaw. It's trying to be more correct.

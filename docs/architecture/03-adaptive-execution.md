@@ -38,10 +38,10 @@ When a step fails:
 - Attempt adaptation
 
 ### 3. Context-Aware Adaptation
-Future enhancement: Use LLM to suggest corrective actions based on:
+Uses LLM to suggest corrective actions based on:
 - Failed step details
 - Error message
-- Previous successful steps
+- Previous successful steps and known failure patterns
 
 ### 4. Execution History
 Track all steps, attempts, and outcomes for:
@@ -93,34 +93,41 @@ class AdaptivePlanner:
             while attempt <= max_retries:
                 result = execute_single_step(step)
                 if result.success:
+                    failure_analyzer.record_success(step)
                     break
                 else:
-                    adapted_step = adapt_on_failure(step, result)
+                    failure_analyzer.record_failure(step, result.error)
+                    adapted_step = llm_adapt_on_failure(step, result)
                     if adapted_step:
                         step = adapted_step
                     attempt += 1
 ```
 
-## Future Enhancements
+## Current Capabilities
 
-### 1. LLM-Based Correction
-Currently, adaptation is disabled (returns None). Future:
-- LLM analyzes failure
-- Suggests corrective action
-- Validates suggestion
-- Executes correction
-
-### 2. Learning from Failures
-Store failure patterns and corrections in memory:
-- "mkdir failed with permission error -> suggest ~/backup instead"
-- "file not found -> suggest similar filenames"
-
-### 3. Parallel Execution
-Some steps can run in parallel if independent:
+### Parallel Execution
+Independent steps are automatically detected and run concurrently via `DependencyAnalyzer` + `ThreadPoolExecutor`:
 ```
 Step 1 (scan Downloads) + Step 2 (scan Documents) -> parallel
 Step 3 (merge results) -> depends on 1+2
 ```
+
+### Failure Learning
+The `FailureAnalyzer` tracks failures in a local database (`failures.db`) and:
+- Warns before retrying a previously-failed operation
+- Suggests fixes based on past recovery patterns
+- Records successful adaptations for future reference
+
+### Self-Reflection
+Before execution, the planner critiques its own plan via a secondary LLM call and can revise steps that look risky or incomplete.
+
+## Future Enhancements
+
+### Deeper LLM-Based Correction
+Extend adaptation to multi-turn correction loops where the LLM proposes, validates, and applies a sequence of corrective steps rather than a single retry.
+
+### Distributed Execution
+Run independent steps across worker processes or remote machines for large batch operations.
 
 ## Why This Matters
 
