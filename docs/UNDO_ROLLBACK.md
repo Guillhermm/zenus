@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zenus OS tracks every operation and provides safe rollback capabilities to undo actions when needed.
+Zenus tracks every operation and provides safe rollback capabilities to undo actions when needed.
 
 ## Architecture
 

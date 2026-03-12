@@ -1,8 +1,8 @@
-# Zenus OS - System Architecture Overview
+# Zenus - System Architecture Overview
 
 ## Core Philosophy
 
-Zenus OS is a cognitive operating layer that translates human intent into safe, deterministic system actions. Unlike conversational AI assistants, Zenus operates through formal intermediate representations with explicit safety contracts.
+Zenus is a cognitive operating layer that translates human intent into safe, deterministic system actions. Unlike conversational AI assistants, Zenus operates through formal intermediate representations with explicit safety contracts.
 
 ## High-Level Architecture
 
@@ -134,7 +134,7 @@ graph TB
 
 ## Comparison: OpenClaw vs Zenus
 
-| Aspect | OpenClaw | Zenus OS |
+| Aspect | OpenClaw | Zenus |
 |--------|----------|----------|
 | Interaction | Conversational | Intent-driven |
 | Safety | Plugin marketplace | Formal contracts |

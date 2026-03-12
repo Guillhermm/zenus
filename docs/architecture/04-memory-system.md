@@ -54,12 +54,12 @@ session.get_last_result()
 **Purpose:** Understand user's system and preferences
 
 ```python
-# User frequently works in ~/projects/zenus_os
-world.remember_path("zenus", "~/projects/zenus_os")
-world.remember_project("zenus_os", path, "python")
+# User frequently works in ~/projects/zenus
+world.remember_path("zenus", "~/projects/zenus")
+world.remember_project("zenus", path, "python")
 
 # Later, user says: "test zenus"
-# Zenus knows: zenus -> ~/projects/zenus_os -> pytest
+# Zenus knows: zenus -> ~/projects/zenus -> pytest
 ```
 
 **What It Stores:**

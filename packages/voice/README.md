@@ -1,6 +1,6 @@
 # Zenus Voice 🎤
 
-**Hands-free voice control for Zenus OS**
+**Hands-free voice control for Zenus**
 
 Talk to your computer naturally - no typing required!
 
@@ -254,7 +254,7 @@ Models are cached in `~/.cache/whisper/`.
 
 ## License
 
-MIT License - Same as Zenus OS
+MIT License - Same as Zenus
 
 ## Credits
 

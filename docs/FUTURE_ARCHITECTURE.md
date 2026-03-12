@@ -1,4 +1,4 @@
-# Zenus OS Future Architecture
+# Zenus Future Architecture
 
 **Vision**: Transform Zenus from a Python-based AI assistant into a true operating system.
 
@@ -50,7 +50,7 @@
 - Combines Python AI intelligence with systems programming
 - Designed AI-first from the ground up
 
-**Zenus OS will be**:
+**Zenus will be**:
 - The first AI-powered operating system
 - A platform for AI that understands hardware
 - A system that learns from every hardware interaction
@@ -460,7 +460,7 @@ See [ROADMAP.md Phase 10](#) for detailed timeline.
 
 ### Benchmarks & Goals
 
-| Metric | v1.x (Python on Linux) | v2.0 Target (Zenus OS) |
+| Metric | v1.x (Python on Linux) | v2.0 Target (Zenus) |
 |--------|------------------------|------------------------|
 | Boot time | N/A (host OS + app) | <5 seconds |
 | Command latency | 100-500ms (LLM + OS) | 50-200ms (LLM + kernel) |
@@ -520,7 +520,7 @@ See [ROADMAP.md Phase 10](#) for detailed timeline.
 
 **M1: Bootable Hello World** (Q4 2027)
 - Boot on x86_64 in QEMU
-- Print "Zenus OS" to screen
+- Print "Zenus" to screen
 - Proof of concept complete
 
 **M2: Memory & Processes** (Q1 2028)

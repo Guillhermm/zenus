@@ -106,7 +106,7 @@ class FeaturesConfig(BaseModel):
 
 class ZenusConfig(BaseModel):
     """
-    Main Zenus OS configuration
+    Main Zenus configuration
     
     Supports multiple profiles (dev, staging, production) with
     schema validation and hot-reload capability.

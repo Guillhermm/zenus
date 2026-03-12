@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zenus OS now provides **real-time feedback** during LLM inference and task execution through streaming output.
+Zenus now provides **real-time feedback** during LLM inference and task execution through streaming output.
 
 ---
 
@@ -256,7 +256,7 @@ On Ctrl+C:
 ### Manual Testing
 
 ```bash
-cd ~/projects/zenus_os
+cd ~/projects/zenus
 source .venv/bin/activate
 
 # Test streaming in iterative mode

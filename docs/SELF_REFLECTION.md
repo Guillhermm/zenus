@@ -2,7 +2,7 @@
 
 **Feature Status**: ✅ Complete and Integrated
 
-Zenus OS now critiques its own plans before execution, catching mistakes and validating assumptions automatically.
+Zenus now critiques its own plans before execution, catching mistakes and validating assumptions automatically.
 
 ## What It Does
 

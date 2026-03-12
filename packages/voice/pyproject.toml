@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "zenus-voice"
 version = "0.1.0"
-description = "Voice interface for Zenus OS - hands-free control with STT and TTS"
+description = "Voice interface for Zenus - hands-free control with STT and TTS"
 authors = ["Zeni <zeni@zenus.ai>"]
 readme = "README.md"
 packages = [{include = "zenus_voice", from = "src"}]

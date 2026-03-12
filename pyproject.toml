@@ -1,10 +1,10 @@
-# Zenus OS - Monorepo Root Configuration
+# Zenus - Monorepo Root Configuration
 # Poetry workspace for managing multiple packages
 
 [tool.poetry]
 name = "zenus"
 version = "0.3.0"
-description = "Zenus OS - AI-Mediated Operating System Layer"
+description = "Zenus - AI-Mediated Operating System Layer"
 authors = ["Zenus Team"]
 readme = "README.md"
 license = "MIT"

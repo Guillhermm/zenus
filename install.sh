@@ -497,13 +497,13 @@ if grep -q "alias zenus=" ~/.bashrc 2>/dev/null; then
     echo "   Updating to current paths..."
     
     # Remove old aliases
-    sed -i '/alias zenus_os=/d' ~/.bashrc
+    sed -i '/alias zenus=/d' ~/.bashrc
     sed -i '/alias zenus=/d' ~/.bashrc
     sed -i '/alias zenus-tui=/d' ~/.bashrc
     
     # Add new aliases
     echo "" >> ~/.bashrc
-    echo "# Zenus OS aliases" >> ~/.bashrc
+    echo "# Zenus aliases" >> ~/.bashrc
     echo "$ZENUS_ALIAS" >> ~/.bashrc
     echo "$ZENUS_TUI_ALIAS" >> ~/.bashrc
     
@@ -511,7 +511,7 @@ if grep -q "alias zenus=" ~/.bashrc 2>/dev/null; then
 else
     # Add aliases for the first time
     echo "" >> ~/.bashrc
-    echo "# Zenus OS aliases" >> ~/.bashrc
+    echo "# Zenus aliases" >> ~/.bashrc
     echo "$ZENUS_ALIAS" >> ~/.bashrc
     echo "$ZENUS_TUI_ALIAS" >> ~/.bashrc
     

@@ -1154,7 +1154,7 @@ class Orchestrator:
                 # readline not available (Windows without pyreadline)
                 pass
         
-        console.print("\n[bold cyan]Zenus OS Interactive Shell[/bold cyan]")
+        console.print("\n[bold cyan]Zenus Interactive Shell[/bold cyan]")
         console.print("Type 'exit' or 'quit' to exit")
         console.print("Special commands: status, memory, model, history, rollback, update, explain, workflow")
         if enhanced_shell:

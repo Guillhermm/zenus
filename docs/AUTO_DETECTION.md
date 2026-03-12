@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zenus OS now **automatically detects** when tasks need iterative execution. You don't need to specify `--iterative` flag manually.
+Zenus now **automatically detects** when tasks need iterative execution. You don't need to specify `--iterative` flag manually.
 
 ## How It Works
 
@@ -310,7 +310,7 @@ The system now **asks for confirmation**, so you can:
 ### "Batch operations not working"
 
 If you see individual file operations:
-1. Check that you're using latest Zenus OS (with updated prompts)
+1. Check that you're using latest Zenus (with updated prompts)
 2. Try being more explicit: "move all PDF files to PDFs folder"
 3. The LLM should now automatically use `*.pdf` patterns
 

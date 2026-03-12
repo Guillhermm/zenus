@@ -1,5 +1,5 @@
 """
-Monitoring module for Zenus OS
+Monitoring module for Zenus
 """
 
 from zenus_core.monitoring.proactive_monitor import (

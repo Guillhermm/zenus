@@ -1,5 +1,5 @@
 """
-Workflow management for Zenus OS
+Workflow management for Zenus
 """
 
 from zenus_core.workflows.recorder import WorkflowRecorder, get_workflow_recorder

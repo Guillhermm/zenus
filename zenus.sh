@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zenus OS launcher — uses the shared project venv (.venv/)
+# Zenus launcher — uses the shared project venv (.venv/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
 

@@ -1,6 +1,6 @@
 # Zenus Visualization
 
-Automatic data visualization system for Zenus OS.
+Automatic data visualization system for Zenus.
 
 ## Features
 

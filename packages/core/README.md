@@ -1,6 +1,6 @@
 # Zenus Core
 
-The brain of Zenus OS - intelligent intent execution engine.
+The brain of Zenus - intelligent intent execution engine.
 
 ## Installation
 

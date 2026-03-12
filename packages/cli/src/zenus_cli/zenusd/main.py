@@ -1,5 +1,5 @@
 """
-Zenus OS - Main Entry Point
+Zenus - Main Entry Point
 
 CLI-first, agent-driven operating layer
 Routes commands through: CLI to Intent to Plan to Execute
@@ -15,7 +15,7 @@ from zenus_core.output.console import console
 
 
 def main():
-    """Main entry point for Zenus OS"""
+    """Main entry point for Zenus"""
     
     router = CommandRouter()
     orchestrator = Orchestrator()

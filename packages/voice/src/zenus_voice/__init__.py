@@ -1,5 +1,5 @@
 """
-Zenus Voice - Voice interface for Zenus OS
+Zenus Voice - Voice interface for Zenus
 
 Hands-free control using Speech-to-Text and Text-to-Speech.
 All processing happens locally - no cloud APIs!

@@ -13,7 +13,7 @@ Step-by-step guide to test Zenus Voice Interface.
 ## Step 1: Pull Latest Code
 
 ```bash
-cd ~/projects/zenus_os
+cd ~/projects/zenus
 git pull
 ./update.sh
 ```

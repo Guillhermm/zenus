@@ -2,7 +2,7 @@
 
 **Feature Status**: ✅ Complete and Integrated
 
-Zenus OS now automatically visualizes data in beautiful, informative formats. No configuration needed - it just works!
+Zenus now automatically visualizes data in beautiful, informative formats. No configuration needed - it just works!
 
 ## What It Does
 

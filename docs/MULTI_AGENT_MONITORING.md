@@ -2,7 +2,7 @@
 
 # Multi-Agent Collaboration & Proactive Monitoring
 
-Two powerful new features that take Zenus OS to the next level:
+Two powerful new features that take Zenus to the next level:
 
 ## 🤖 Multi-Agent Collaboration
 
@@ -350,7 +350,7 @@ orch.proactive_monitor.add_health_check(service_check)
 
 Run tests:
 ```bash
-cd zenus_os
+cd zenus
 poetry run pytest packages/core/tests/test_multi_agent_and_monitoring.py -v
 ```
 

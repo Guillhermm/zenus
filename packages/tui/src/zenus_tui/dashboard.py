@@ -1,5 +1,5 @@
 """
-Zenus OS Dashboard
+Zenus Dashboard
 
 Main TUI application with multiple views and real-time updates.
 Fully wired to Zenus orchestrator and memory systems.
@@ -621,7 +621,7 @@ class ModelTabView(Container):
 
 
 class ZenusDashboard(App):
-    """Zenus OS TUI Dashboard - Polished Edition"""
+    """Zenus TUI Dashboard - Polished Edition"""
     
     CSS = """
     #status-bar {
@@ -703,7 +703,7 @@ class ZenusDashboard(App):
 
     def __init__(self):
         super().__init__()
-        self.title = "Zenus OS Dashboard"
+        self.title = "Zenus Dashboard"
         self.sub_title = "AI-Powered System Management"
 
         # Orchestrator is initialized asynchronously in on_mount to avoid

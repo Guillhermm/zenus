@@ -64,7 +64,7 @@ class TestCommandRouter:
         """Help should print usage information"""
         self.router.show_help()
         captured = capsys.readouterr()
-        assert "Zenus OS" in captured.out
+        assert "Zenus" in captured.out
         assert "USAGE:" in captured.out
         assert "EXAMPLES:" in captured.out
     
@@ -72,4 +72,4 @@ class TestCommandRouter:
         """Version should print version string"""
         self.router.show_version()
         captured = capsys.readouterr()
-        assert "Zenus OS v" in captured.out
+        assert "Zenus v" in captured.out

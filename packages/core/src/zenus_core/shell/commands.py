@@ -21,7 +21,7 @@ def handle_status_command(orchestrator):
 
     console = Console()
     console.print()
-    console.print(Panel.fit("[bold cyan]Zenus OS Status[/bold cyan]", border_style="cyan"))
+    console.print(Panel.fit("[bold cyan]Zenus Status[/bold cyan]", border_style="cyan"))
     console.print()
 
     # Session stats
@@ -306,11 +306,11 @@ def handle_memory_command(orchestrator, subcommand: str = "stats"):
 
 
 def handle_update_command():
-    """Update Zenus OS"""
+    """Update Zenus"""
     import subprocess
     import os
     
-    print("\n🔄 Updating Zenus OS...")
+    print("\n🔄 Updating Zenus...")
     print()
     
     # Update git repo

@@ -1,8 +1,8 @@
-# Zenus OS
+# Zenus
 
-**An intelligent, AI-mediated operating system layer that understands your intent and acts autonomously.**
+**An AI-mediated system layer that translates natural language into validated system operations.**
 
-Zenus OS transforms how you interact with computers—no more memorizing commands or navigating complex GUIs. Just express your intent in natural language, and Zenus handles the rest.
+Zenus sits between you and the operating system. You describe what you want; Zenus figures out the right commands, checks them for safety, and executes them—tracking everything so mistakes can be undone.
 
 ```bash
 $ zenus "organize my downloads by file type"
@@ -11,596 +11,338 @@ $ zenus "organize my downloads by file type"
 $ zenus "show me what's using the most CPU"
 ✓ Top 5 processes displayed
 
-$ zenus rollback  # Made a mistake? Undo it!
+$ zenus rollback
 ✓ Successfully rolled back last action
 ```
 
 ---
 
-## 🎯 Revolutionary Features (NEW in v0.5.0!)
+## Long-term Vision
 
-Zenus includes **three groundbreaking capabilities** that don't exist in Cursor, OpenClaw, or any other AI assistant:
+Zenus is designed with a clear long-term trajectory: **become an operating system**.
 
-### 🌳 **Tree of Thoughts** - Explore Multiple Solution Paths
-Never settle for one approach! Zenus explores 3-5 alternative solutions in parallel, evaluates each one (confidence, risk, speed, pros/cons), and intelligently selects the best path. See all alternatives and understand why one was chosen.
+Today, Zenus runs on top of Linux as an intent-execution layer. Over time, the architecture is intended to evolve into a full OS where the interface, scheduling, and system management are all mediated through intent rather than traditional commands. Every design decision — from the Intent IR contract to the sandboxed execution model — is made with that future in mind.
 
-**Example**: "Deploy my app" → Explores Docker Compose, Kubernetes, systemd → Selects best for your context
-
-### 📈 **Prompt Evolution** - Self-Improving System
-The system gets smarter with EVERY command you run. Tracks success rates, auto-tunes prompts, runs A/B tests, and learns from YOUR workflows. No manual prompt engineering needed!
-
-**Result**: 60% → 90% success rate after 50 commands. Saves tokens and improves quality.
-
-### 🔮 **Goal Inference** - Understand True Intent
-Understands your high-level goal and proposes COMPLETE workflows including safety steps you forgot to mention. Automatically adds backups before deployment, tests before release, verification after migration.
-
-**Example**: "Deploy app" → Suggests: backup current version → run tests → deploy → verify health → monitor
-
-**[Read full documentation →](REVOLUTIONARY_FEATURES.md)**
+The current release is **v0.3.0-alpha**, the foundation of that journey. It is a working system that runs on any Linux machine today.
 
 ---
 
-## 🚀 Advanced Features (Experimental)
+## How It Works
 
-### 🎤 **Voice Interface** (NEW!)
-Hands-free control using speech! Talk to Zenus naturally - no typing required. Features local Whisper STT, Piper TTS, conversational flow, and optional wake word detection ("Hey Zenus").
+```mermaid
+graph TD
+    A[User Input\nNatural Language] --> B[Intent Translation\nLLM + Context]
+    B --> C[Intent IR\nValidated Intermediate Representation]
+    C --> D[Failure Analyzer]
+    C --> E[Dependency Analyzer]
+    C --> F[Suggestion Engine]
+    D --> G[Action Tracker\nTransaction Start]
+    E --> G
+    F --> G
+    G --> H[Parallel Executor\nThreadPoolExecutor]
+    H --> I[FileOps]
+    H --> J[SystemOps]
+    H --> K[GitOps]
+    H --> L[BrowserOps]
+    H --> M[PackageOps]
+    H --> N[NetworkOps]
+    I --> O[Action Tracker\nTransaction End]
+    J --> O
+    K --> O
+    L --> O
+    M --> O
+    N --> O
+    O --> P[Memory Layer\nSession · World Model · Intent History · Failures]
+```
 
-**Zero cloud**: Everything runs locally, completely private
+**Key components:**
 
-**Use for**: Accessibility, hands-free coding, demos, convenience
-
-**[Read voice documentation →](packages/voice/README.md)**
-
-### 🤖 **Multi-Agent Collaboration**
-Deploy specialized AI agents (Researcher, Planner, Executor, Validator) that work together to solve complex tasks. Like having a team of experts collaborating on your behalf!
-
-**Use for**: Complex projects, research-heavy tasks, multi-step workflows
-
-### 🔍 **Proactive Monitoring**
-Background system that watches for issues and fixes them BEFORE you notice. Auto-cleans disk space, restarts crashed services, monitors SSL certificates, and more.
-
-**Always running**: Zero cost, prevents disasters, saves time
-
-**[Read advanced features documentation →](MULTI_AGENT_AND_MONITORING.md)**
-
----
-
-## 🌟 Core Features
-
-### 🧠 **Intelligent Understanding**
-- **Natural Language Processing**: Speak or type naturally—no command syntax to memorize
-- **Intent Translation**: Understands what you want, not just what you say
-- **Contextual Awareness**: Knows your working directory, git status, time of day, and more
-- **Learning System**: Remembers your mistakes and suggests better approaches
-
-### ⚡ **Smart Execution**
-- **Parallel Processing**: Automatically executes independent operations concurrently (2-5x faster)
-- **Adaptive Retry**: Recovers from transient failures automatically
-- **Batch Optimization**: Detects inefficient patterns and suggests wildcards
-- **Dependency Analysis**: Safe concurrent execution with automatic dependency resolution
-
-### 🛡️ **Safety First**
-- **Undo/Rollback**: Made a mistake? `zenus rollback` to reverse operations
-- **Sandboxed Execution**: Path validation, resource limits, and permission checks
-- **Dry-Run Mode**: Preview what will happen before execution
-- **Risk Assessment**: Warns about destructive operations before executing
-
-### 💡 **Proactive Intelligence**
-- **Failure Learning**: Never repeat the same mistake—learns from every error
-- **Smart Suggestions**: "Use `*.pdf` instead of processing 15 files individually" (93% faster)
-- **Performance Warnings**: Alerts you to slow operations before running them
-- **Tool Alternatives**: Suggests better tools when one repeatedly fails
-
-### 📚 **Comprehensive Memory**
-- **Session Memory**: Remembers context within conversations
-- **World Model**: Learns your preferences and frequent paths
-- **Intent History**: Complete audit trail of all operations
-- **Failure Patterns**: Tracks what went wrong and how to fix it
+- **Intent IR** — Every LLM output is validated against a typed schema before execution. No raw text is ever executed. This is the contract that makes Zenus safe and auditable, and the foundation for OS-grade determinism.
+- **Failure Analyzer** — Warns before repeating known failures and suggests fixes based on past experience.
+- **Dependency Analyzer** — Builds a dependency graph so independent operations can run concurrently.
+- **Suggestion Engine** — Proactively recommends optimizations (e.g. wildcards instead of 15 individual files).
+- **Action Tracker** — Records every operation as a transaction, enabling rollback.
+- **Parallel Executor** — Runs independent steps concurrently via ThreadPoolExecutor.
+- **Memory Layer** — Three layers with different lifetimes: session (RAM), world model (disk), intent history (permanent audit trail).
 
 ---
 
-## 🚀 Quick Start
+## Packages
+
+Zenus is a monorepo. Each package has a defined role and maps to a component in the future OS architecture.
+
+```mermaid
+graph LR
+    CLI[zenus-cli\nEntry point & routing]
+    CORE[zenus-core\nIntent engine & tools]
+    TUI[zenus-tui\nTerminal dashboard]
+    VOICE[zenus-voice\nVoice interface]
+    VIZ[zenus-visualization\nChart & table rendering]
+
+    CLI --> CORE
+    TUI --> CORE
+    VOICE --> CORE
+    CORE --> VIZ
+```
+
+| Package | Description | Future OS Role |
+|---------|-------------|----------------|
+| `zenus-core` | Intent translation, planning, tool execution, memory, safety | Kernel cognitive layer |
+| `zenus-cli` | CLI entry point, argument routing, interactive REPL | System shell |
+| `zenus-tui` | Terminal dashboard with execution log, history, memory view | Primary UI surface |
+| `zenus-voice` | Speech-to-text and text-to-speech interface | Voice I/O subsystem |
+| `zenus-visualization` | Automatic chart and table rendering for command output | Output rendering layer |
+
+---
+
+## Features
+
+### Safety and correctness
+
+- **Intent IR validation** — LLM output is parsed into a typed schema before any execution happens. Malformed or unsafe intents are rejected at the boundary.
+- **Dry-run mode** — Preview the full execution plan without running anything: `zenus --dry-run "delete all tmp files"`
+- **Sandboxed execution** — Path validation, resource limits, and permission checks on every tool call.
+- **Risk assessment** — Destructive operations are flagged before execution.
+- **Undo/rollback** — Every operation is tracked as a transaction. `zenus rollback` reverses the last action; `zenus rollback 5` reverses the last five.
+
+### Execution
+
+- **Parallel execution** — Independent operations are automatically detected and run concurrently (2–5x faster for batch work).
+- **Adaptive retry** — Failed steps are retried with updated context from the failure observation.
+- **Iterative mode** — For complex multi-step tasks, Zenus uses a ReAct loop: execute, observe, adapt.
+
+### Intelligence
+
+- **Failure learning** — Tracks failures in a local database and warns when a previously-failed operation is attempted again.
+- **Contextual awareness** — Knows working directory, git status, system state, and recent history when constructing plans.
+- **Optimization suggestions** — Detects inefficient patterns (e.g. processing 15 files individually) and suggests better approaches.
+- **Tree of Thoughts** — For high-stakes decisions, explores multiple solution paths and selects the best one by evaluating confidence, risk, and speed.
+- **Self-reflection** — Critiques its own plan before execution and revises if needed.
+- **Goal inference** — Identifies implied steps the user didn't explicitly mention (e.g. adding a backup before a destructive migration).
+
+### Memory
+
+- **Session memory** — Maintains context within a conversation.
+- **World model** — Learns persistent facts about your environment (frequent paths, preferred tools, project structure).
+- **Intent history** — Complete audit trail of every operation.
+- **Failure patterns** — Records what went wrong and what fixed it.
+
+---
+
+## Quick Start
 
 ### Installation
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/Guillhermm/zenus_os.git
-cd zenus_os
+# Clone
+git clone https://github.com/Guillhermm/zenus.git
+cd zenus
 
-# 2. Run installer (handles Poetry, packages, LLM setup, and aliases)
+# Run installer (creates venv, installs packages, configures LLM, sets up aliases)
 ./install.sh
 
-# 3. Reload shell to use aliases
+# Reload shell
 source ~/.bashrc
 
-# 4. Test it!
+# Verify
 zenus help
-zenus "list files"
 ```
 
-The installer will:
-- ✓ Check/install Python 3.10+
-- ✓ Check/install Poetry
-- ✓ Install all Zenus packages (core, CLI, TUI)
-- ✓ Guide you through LLM backend setup
-- ✓ Configure shell aliases automatically
+The installer will guide you through choosing an LLM backend:
 
-### LLM Options
-
-During installation, you'll choose one:
-
-**1. Ollama** (Local, FREE - Recommended)
-- Runs on your hardware, no API key needed
-- Requires 4-16GB RAM depending on model
-- Models: phi3:mini (recommended), llama3.2:3b, qwen2.5:3b
-
-**2. Anthropic Claude** (Cloud)
-- Excellent reasoning and code generation
-- Get API key: https://console.anthropic.com/account/keys
-- Models: claude-3-5-sonnet (recommended), claude-3-5-haiku, claude-3-opus
-- Cost: ~$0.003 per command
-
-**3. OpenAI** (Cloud)
-- Fast and reliable GPT-4o-mini
-- Get API key: https://platform.openai.com/api-keys
-- Cost: ~$0.001 per command
-
-**4. DeepSeek** (Cloud, Cost-Effective)
-- Good performance at lower cost
-- Get API key: https://platform.deepseek.com
-- Cost: ~$0.0001-0.0003 per command
+| Backend | Cost | Notes |
+|---------|------|-------|
+| **Ollama** (local) | Free | Requires 4–16 GB RAM. Full privacy. |
+| **Anthropic Claude** | ~$0.003/cmd | Best reasoning. claude-sonnet-4-6 recommended. |
+| **DeepSeek** | ~$0.0003/cmd | Strong performance at low cost. |
+| **OpenAI** | ~$0.001/cmd | gpt-4o and gpt-4.1 supported. |
 
 ### Updating
 
-After pulling updates from git:
-
 ```bash
-cd zenus_os
+cd zenus
 git pull
 ./update.sh
 ```
 
-This reinstalls all packages with updated dependencies.
-
-**Troubleshooting?** See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
 ---
 
-## 💻 Usage
+## Usage
 
-### Interactive Mode
+### Interactive shell
 
 ```bash
 $ zenus
-
 zenus > organize my downloads by file type
 ✓ Moved 47 files into 5 categories
 
 zenus > show disk usage for my home directory
 /home/user: 142 GB used / 500 GB total (28%)
 
-zenus > find python processes
-Found 3 processes:
-  [12345] python3 main.py
-  [12346] python manage.py runserver
-  [12347] jupyter notebook
-
 zenus > exit
 ```
 
-### Direct Execution
+### Direct execution
 
 ```bash
-# Execute immediately
 zenus "list files in ~/Documents"
-
-# Preview without executing
 zenus --dry-run "delete all tmp files"
-
-# Complex multi-step tasks
 zenus --iterative "read my research paper and improve chapter 3"
 ```
 
-### Undo Mistakes
+### Rollback
 
 ```bash
-$ zenus "install packages: curl, wget, htop"
-✓ Installed 3 packages
-
-$ zenus rollback
-Rolling back last 3 action(s)...
-✓ Successfully rolled back 3 action(s)
-
-$ zenus rollback 5  # Rollback last 5 actions
-$ zenus rollback --dry-run  # Preview what would be undone
+zenus rollback          # Undo last action
+zenus rollback 5        # Undo last 5 actions
+zenus rollback --dry-run  # Preview what would be undone
 ```
 
-### View History
+### History
 
 ```bash
-# Show recent operations
 zenus history
-
-# Show failure history and patterns
 zenus history --failures
 ```
 
----
-
-## 🎯 What Can Zenus Do?
-
-### File Operations
-- **Organize**: "organize my downloads by file type"
-- **Search**: "find all PDFs modified this week"
-- **Batch**: "copy all images from ~/Pictures to backup/"
-- **Content**: "read my notes.txt" or "append meeting notes to todo.txt"
-
-### System Management
-- **Monitoring**: "show disk usage" or "what's using the most CPU?"
-- **Processes**: "find python processes" or "kill process 12345"
-- **Services**: "start nginx" or "restart docker"
-- **Information**: "show system uptime" or "memory usage"
-
-### Package Management
-- **Install**: "install package curl"
-- **Remove**: "uninstall package nodejs"
-- **Update**: "update package lists"
-- Supports: apt, dnf, pacman
-
-### Browser Automation
-- **Screenshot**: "take screenshot of github.com"
-- **Download**: "download report.pdf from company.com"
-- **Navigate**: "open google.com and search for AI research"
-- **Extract**: "get all links from news.ycombinator.com"
-
-### Git Operations
-- **Status**: "show git status"
-- **Commit**: "commit changes with message 'fix bug'"
-- **Branch**: "create new branch feature-x"
-- **History**: "show last 5 commits"
-
-### Network Operations
-- **Download**: "download https://example.com/file.zip"
-- **Check**: "ping google.com"
-- **Test**: "curl https://api.example.com"
-
-### Container Management (Docker/Podman)
-- **Run**: "run nginx container"
-- **List**: "show running containers"
-- **Stop**: "stop container abc123"
-- **Images**: "list docker images"
-
----
-
-## 🧠 Intelligent Features
-
-### Learns from Failures
+### TUI
 
 ```bash
-$ zenus "docker ps"
-❌ Permission denied: /var/run/docker.sock
-
-💡 Suggestions to fix this:
-  1. Add user to docker group: sudo usermod -aG docker $USER
-  2. Log out and back in
-  3. Verify: groups (should show 'docker')
-
-📋 Recovery plan: [detailed steps]
-
-# Try again later - Zenus remembers!
-$ zenus "docker ps"
-
-📚 Learning from past experience:
-  ⚠️  Tool 'ContainerOps' has failed 1 time(s) recently
-  Success probability: 50%
-
-💡 Learned fix: Add user to docker group and restart session
-
-Proceed anyway? (y/n):
-```
-
-### Suggests Optimizations
-
-```bash
-$ zenus "copy report1.pdf report2.pdf ... (15 files)"
-
-💡 Suggestions:
-  ⚡ Use wildcard for batch operations
-     Instead of processing 15 files individually, use wildcards like *.pdf
-     Reason: Wildcards can reduce execution time by ~93%
-
-  ⚡ Enable parallel execution
-     These operations can run concurrently, potentially 15.0x faster
-     Reason: Independent operations detected
-```
-
-### Automatic Parallel Execution
-
-```bash
-$ zenus "download Q1, Q2, Q3, Q4 reports from intranet"
-
-Using parallel execution (estimated 4.0x speedup)
-  Level 1 (parallel - 4 steps):
-    [0-3] NetworkOps.download
-
-✓ Completed in 2.1s (was 8.4s sequentially)
-4x actual speedup achieved!
+zenus-tui
 ```
 
 ---
 
-## 📖 Documentation
+## What Zenus Can Do
 
-- **[Features Guide](docs/FEATURES.md)** - Complete feature documentation
-- **[Architecture](docs/ARCHITECTURE.md)** - System design and components
-- **[User Guide](docs/USER_GUIDE.md)** - Detailed usage examples
-- **[Configuration](docs/CONFIGURATION.md)** - Advanced configuration
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+### File operations
+- Organize, search, copy, move, read, write files
+- Batch operations with wildcard optimization
+- Content editing via natural language
 
-### Specific Features
-- [Iterative Execution](docs/ITERATIVE_MODE.md) - Complex multi-step tasks
-- [Failure Learning](docs/FAILURE_LEARNING.md) - Learning from mistakes
-- [Undo/Rollback](docs/UNDO_ROLLBACK.md) - Safe experimentation
-- [Auto-Detection](docs/AUTO_DETECTION.md) - Task complexity analysis
-- [Semantic Search](docs/SEMANTIC_SEARCH.md) - Find similar past commands
+### System management
+- Disk usage, process monitoring, CPU/memory stats
+- Start, stop, restart services
+- Package management (apt, dnf, pacman)
 
----
+### Developer workflows
+- Git status, commit, branch, history
+- Docker/Podman container management
+- Browser automation (screenshot, download, scrape)
 
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        User Input                            │
-│              (Natural Language / Commands)                   │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   Intent Translation (LLM)                   │
-│            Understanding + Context + History                 │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Intent IR                               │
-│         (Validated Intermediate Representation)              │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-  ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │ Failure  │    │Dependency│    │Suggestion│
-  │ Analysis │    │ Analysis │    │  Engine  │
-  └────┬─────┘    └────┬─────┘    └────┬─────┘
-       │               │               │
-       └───────────────┼───────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │   Action Tracker       │
-          │   (Transaction Start)  │
-          └────────┬───────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 Parallel Executor                            │
-│         (ThreadPoolExecutor + Dependency Graph)              │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-        ▼                ▼                ▼
-  ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │ FileOps  │    │SystemOps │    │ GitOps   │
-  └──────────┘    └──────────┘    └──────────┘
-  ┌──────────┐    ┌──────────┐    ┌──────────┐
-  │BrowserOps│    │PackageOps│    │NetworkOps│
-  └──────────┘    └──────────┘    └──────────┘
-        │                │                │
-        └────────────────┼────────────────┘
-                         │
-                         ▼
-          ┌────────────────────────┐
-          │   Action Tracker       │
-          │   (Transaction End)    │
-          └────────┬───────────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Memory Layer                              │
-│   Session • World Model • Intent History • Failures          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Key Components:**
-- **Intent Translation**: LLM converts natural language to structured commands
-- **Failure Analyzer**: Warns before repeating mistakes, suggests fixes
-- **Dependency Analyzer**: Builds dependency graph for safe parallel execution
-- **Suggestion Engine**: Proactive optimization recommendations
-- **Action Tracker**: Records all operations for rollback capability
-- **Parallel Executor**: Concurrent execution with ThreadPoolExecutor
-- **Tool Registry**: 10 specialized tools for system operations
-- **Memory Layer**: Multi-layered learning and context system
+### Network
+- Download files, ping, HTTP requests
 
 ---
 
-## 🎭 Comparison
-
-### Zenus OS vs. Traditional CLI
-
-| Feature | Traditional CLI | Zenus OS |
-|---------|----------------|----------|
-| Learning Curve | Steep (memorize commands) | Natural (speak intent) |
-| Error Recovery | Manual troubleshooting | Intelligent suggestions + undo |
-| Batch Operations | Manual scripting | Automatic optimization |
-| Safety Net | `ctrl+z` / manual backup | Transaction-based rollback |
-| Performance | Sequential execution | Automatic parallelization |
-| Context | None | Full system awareness |
-
-### Zenus OS vs. OpenClaw
-
-| Aspect | OpenClaw | Zenus OS |
-|--------|----------|----------|
-| Philosophy | Flexible agent framework | Deterministic OS layer |
-| Focus | Task automation | System control |
-| Safety | Plugin marketplace | Formal contracts + rollback |
-| Memory | Vector + markdown | Multi-layer learning system |
-| Execution | Async messaging | Validated pipeline + parallel |
-| Learning | Manual memory editing | Automatic failure learning |
-
-**When to use Zenus**: System administration, file management, development workflows  
-**When to use OpenClaw**: Multi-agent coordination, flexible automation, integrations
-
----
-
-## 📊 Performance
-
-### Speedup Examples
-
-| Operation | Sequential | Parallel | Speedup |
-|-----------|-----------|----------|---------|
-| Download 10 files | 30s | 6s | **5.0x** |
-| Copy 20 files | 20s | 4s | **5.0x** |
-| Process 100 images | 100s | 25s | **4.0x** |
-| Batch with wildcards | 100s | 2s | **50x** |
-
-### Resource Usage
-
-- **Overhead**: <100ms per command
-- **Memory**: ~50-200MB (depends on LLM backend)
-- **Storage**: ~10KB per day (logs + history)
-- **Database**: SQLite (failures.db + actions.db ~1MB)
-
----
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-# All tests
-pytest
-
-# With coverage
-pytest --cov
-
-# Specific module
-pytest tests/test_failure_analyzer.py -v
-
-# Quick smoke test
-pytest -k "not slow"
-```
-
-### Project Structure
+## Project Structure
 
 ```
-zenus_os/
+zenus/
 ├── packages/
-│   ├── core/              # zenus-core: shared engine
+│   ├── core/              # zenus-core: intent engine
 │   │   └── src/zenus_core/
-│   │       ├── orchestrator.py    # Main execution coordinator
-│   │       ├── rollback.py        # Undo engine
-│   │       ├── brain/             # Intelligence layer
-│   │       │   ├── llm/          # LLM adapters (Anthropic, OpenAI, DeepSeek, Ollama)
-│   │       │   ├── planner.py    # Execution planning
-│   │       │   ├── task_analyzer.py       # Complexity analysis
-│   │       │   ├── failure_analyzer.py    # Failure learning
-│   │       │   ├── dependency_analyzer.py # Parallel scheduling
-│   │       │   ├── tree_of_thoughts.py    # Multi-path exploration
-│   │       │   ├── prompt_evolution.py    # Self-improving prompts
-│   │       │   ├── goal_inference.py      # High-level goal understanding
-│   │       │   ├── self_reflection.py     # Pre-execution plan critique
-│   │       │   └── multi_agent.py         # Multi-agent collaboration
-│   │       ├── tools/             # Tool implementations (10 tools)
-│   │       │   ├── file_ops.py    # File operations
-│   │       │   ├── git_ops.py     # Git + GitHub Issues API
-│   │       │   ├── system_ops.py  # System management
-│   │       │   ├── browser_ops.py # Browser automation
+│   │       ├── orchestrator.py        # Main execution coordinator
+│   │       ├── rollback.py            # Undo engine
+│   │       ├── brain/                 # Intelligence layer
+│   │       │   ├── llm/               # LLM adapters (Anthropic, OpenAI, DeepSeek, Ollama)
+│   │       │   ├── planner.py
+│   │       │   ├── failure_analyzer.py
+│   │       │   ├── dependency_analyzer.py
+│   │       │   ├── tree_of_thoughts.py
+│   │       │   ├── prompt_evolution.py
+│   │       │   ├── goal_inference.py
+│   │       │   ├── self_reflection.py
+│   │       │   └── multi_agent.py
+│   │       ├── tools/                 # Tool implementations
+│   │       │   ├── file_ops.py
+│   │       │   ├── git_ops.py
+│   │       │   ├── system_ops.py
+│   │       │   ├── browser_ops.py
 │   │       │   └── ... (10 tools total)
-│   │       ├── memory/            # Memory systems
-│   │       ├── output/            # Shared output utilities (console, streaming, progress)
-│   │       ├── shell/             # Interactive shell handlers
-│   │       ├── execution/         # Parallel executor
-│   │       ├── safety/            # Safety policies
-│   │       ├── sandbox/           # Sandboxing
-│   │       └── audit/             # Audit logging
-│   ├── cli/               # zenus-cli: command-line entry point
-│   │   └── src/zenus_cli/
-│   │       ├── router.py          # CLI argument parsing
-│   │       └── zenusd/main.py     # Entry point
+│   │       ├── memory/                # Session, world model, history
+│   │       ├── shell/                 # Interactive shell
+│   │       ├── execution/             # Parallel executor
+│   │       ├── safety/                # Safety policies
+│   │       ├── sandbox/               # Sandboxed execution
+│   │       └── audit/                 # Audit logging
+│   ├── cli/               # zenus-cli: entry point
 │   ├── tui/               # zenus-tui: terminal dashboard
 │   ├── voice/             # zenus-voice: voice interface
-│   └── visualization/     # zenus-visualization: chart/table rendering
-├── tests/                 # Root test suite (137 unit tests)
-│   ├── unit/              # Unit tests
-│   └── integration/       # Integration tests
-├── docs/                  # Documentation
-├── config.yaml            # LLM and feature configuration
-└── README.md
+│   └── visualization/     # zenus-visualization: charts and tables
+├── tests/
+│   ├── unit/
+│   └── integration/
+├── docs/
+├── config.yaml
+└── install.sh
+```
+
+---
+
+## Development
+
+### Running tests
+
+```bash
+pytest
+pytest --cov
+pytest tests/unit/ -v
 ```
 
 ### Contributing
 
-We welcome contributions! Areas for improvement:
 - Additional tool implementations
 - LLM adapter improvements
-- Test coverage expansion
-- Documentation enhancements
-- Performance optimizations
+- Test coverage
+- Documentation
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
-### Current (v0.2.0)
-- ✅ Natural language understanding
-- ✅ Parallel execution
-- ✅ Failure learning
-- ✅ Undo/rollback
-- ✅ Proactive suggestions
-- ✅ 10 tool categories
-- ✅ Multi-LLM support
+See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
-### Next (v0.3.0)
-- [ ] Voice interface (Whisper + TTS)
-- [ ] Enhanced semantic search
-- [ ] Custom skill plugins
-- [ ] Advanced rollback strategies
-- [ ] Performance profiling dashboard
+### Current (v0.3.0-alpha)
+- Natural language to system operations
+- Parallel execution with dependency analysis
+- Failure learning and adaptive retry
+- Undo/rollback (transaction-based)
+- Optimization suggestions
+- 10 tool categories
+- Multi-LLM support (Anthropic, OpenAI, DeepSeek, Ollama)
+- TUI dashboard
+- Self-reflection and plan critique
+- Tree of Thoughts planning
+- Goal inference
 
-### Future (v1.0.0)
-- [ ] Distributed execution
-- [ ] Multi-user support
-- [ ] Shared learning database
-- [ ] Custom OS distribution
-- [ ] Mobile companion app
+### Near-term
+- Voice interface stabilization
+- Plugin/skill system
+- Enhanced semantic search over history
+- Streaming output in TUI
 
----
-
-## 📜 License
-
-GNU General Public License (GPLv3) - See [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with:
-- **LLM Providers**: OpenAI, DeepSeek, Ollama
-- **Libraries**: Pydantic, Rich, SQLite, Playwright, pytest
+### Long-term (toward Zenus as OS)
+- Persistent world model across reboots
+- Multi-user support with isolated contexts
+- Custom Linux distribution
+- Hardware abstraction layer
+- Replace shell as primary system interface
 
 ---
 
-## 📞 Support
+## License
 
-- **Issues**: [GitHub Issues](https://github.com/Guillhermm/zenus_os/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Guillhermm/zenus_os/discussions)
+GNU General Public License v3 — see [LICENSE](LICENSE).
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/Guillhermm/zenus/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Guillhermm/zenus/discussions)
 - **Documentation**: [docs/](docs/)
 
 ---
 
-**Zenus OS: Computing should understand intent, not just commands.** ⚡
-
-*Made with ❤️ for developers who want their computer to actually understand them.*
+*Zenus: computing driven by intent, not commands.*

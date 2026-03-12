@@ -2,7 +2,7 @@
 
 **Migrating from .env to config.yaml**
 
-Zenus OS now uses modern YAML configuration with profile support and hot-reload!
+Zenus now uses modern YAML configuration with profile support and hot-reload!
 
 ---
 

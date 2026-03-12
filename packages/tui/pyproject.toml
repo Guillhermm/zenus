@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "zenus-tui"
 version = "0.3.0"
-description = "Zenus OS - Text-based User Interface"
+description = "Zenus - Text-based User Interface"
 authors = ["Zenus Team"]
 readme = "README.md"
 license = "MIT"

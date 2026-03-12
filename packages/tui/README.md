@@ -1,6 +1,6 @@
 # Zenus TUI
 
-Text-based User Interface for Zenus OS using Textual framework.
+Text-based User Interface for Zenus using Textual framework.
 
 ## Features
 

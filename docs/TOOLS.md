@@ -1,8 +1,8 @@
-# Zenus OS Tools Reference
+# Zenus Tools Reference
 
 ## Overview
 
-Zenus OS now supports **10 tool categories** with **95+ methods** for complete Linux system control.
+Zenus now supports **10 tool categories** with **95+ methods** for complete Linux system control.
 
 ---
 

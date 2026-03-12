@@ -60,7 +60,7 @@ def test_log_simple_failure(logger):
 def test_log_failure_with_context(logger):
     """Test logging failure with full context"""
     context = {
-        "directory": {"path": "~/projects", "project_name": "zenus_os"},
+        "directory": {"path": "~/projects", "project_name": "zenus"},
         "git": {"is_repo": True, "branch": "main", "status": "clean"},
         "time": {"time_of_day": "morning", "hour": 10}
     }

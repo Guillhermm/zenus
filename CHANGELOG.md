@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Zenus OS will be documented in this file.
+All notable changes to Zenus will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -378,8 +378,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Installation
 
 ```bash
-git clone https://github.com/Guillhermm/zenus_os.git
-cd zenus_os
+git clone https://github.com/Guillhermm/zenus.git
+cd zenus
 ./install.sh
 ```
 
@@ -395,6 +395,6 @@ zenus-tui                     # Launch TUI dashboard
 
 ## Links
 
-- **Repository**: https://github.com/Guillhermm/zenus_os
-- **Issues**: https://github.com/Guillhermm/zenus_os/issues
-- **Discussions**: https://github.com/Guillhermm/zenus_os/discussions
+- **Repository**: https://github.com/Guillhermm/zenus
+- **Issues**: https://github.com/Guillhermm/zenus/issues
+- **Discussions**: https://github.com/Guillhermm/zenus/discussions

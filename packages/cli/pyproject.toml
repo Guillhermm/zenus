@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "zenus-cli"
 version = "0.3.0"
-description = "Zenus OS - Command Line Interface"
+description = "Zenus - Command Line Interface"
 authors = ["Zenus Team"]
 readme = "README.md"
 license = "MIT"

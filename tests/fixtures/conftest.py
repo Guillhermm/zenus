@@ -1,5 +1,5 @@
 """
-Shared test fixtures for Zenus OS tests
+Shared test fixtures for Zenus tests
 """
 
 import os

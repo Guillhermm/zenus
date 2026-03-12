@@ -19,7 +19,7 @@ Semantic search allows Zenus to learn from past commands and find similar operat
 ## Installation
 
 ```bash
-cd ~/projects/zenus_os
+cd ~/projects/zenus
 source .venv/bin/activate
 pip install -r requirements-ml.txt
 ```

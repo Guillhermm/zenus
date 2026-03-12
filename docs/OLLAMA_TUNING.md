@@ -2,7 +2,7 @@
 
 ## Current Configuration
 
-Zenus OS uses these Ollama settings for reliable output:
+Zenus uses these Ollama settings for reliable output:
 
 ```python
 {

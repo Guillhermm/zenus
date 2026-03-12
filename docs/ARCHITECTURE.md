@@ -1,4 +1,4 @@
-# Zenus OS Architecture
+# Zenus Architecture
 
 Complete system design and technical architecture.
 
@@ -6,7 +6,7 @@ Complete system design and technical architecture.
 
 ## System Overview
 
-Zenus OS follows a pipeline architecture that transforms natural language input into validated, safe system operations:
+Zenus follows a pipeline architecture that transforms natural language input into validated, safe system operations:
 
 ```
 User Input → Translation → Validation → Analysis → Execution → Memory

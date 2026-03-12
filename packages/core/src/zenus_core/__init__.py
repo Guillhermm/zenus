@@ -1,7 +1,7 @@
 """
 Zenus Core - Intent Execution Engine
 
-The brain of Zenus OS: translates intent into validated system operations.
+The brain of Zenus: translates intent into validated system operations.
 """
 
 __version__ = "0.3.0"

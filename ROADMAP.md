@@ -1,8 +1,8 @@
-# Zenus OS Roadmap
+# Zenus Roadmap
 
-**Vision**: The most intelligent, capable, and accessible operating system interface ever built.
+**Vision**: An operating system driven by intent, not commands.
 
-This roadmap outlines transformative improvements to make Zenus OS the definitive AI-powered system management platform. All ideas are ambitious by design—implementation priority will be determined based on impact and feasibility.
+This roadmap outlines planned improvements across all phases of Zenus development — from the current system layer to the long-term goal of Zenus becoming a full operating system. All ideas are aspirational; implementation priority is determined by impact and feasibility.
 
 ---
 
@@ -649,7 +649,7 @@ graph TD
 - [ ] Service management layer
 - [ ] Multi-user support
 
-**Phase 10f: Full OS Release - Zenus OS 2.0 (Q4 2028)**
+**Phase 10f: Full OS Release - Zenus 2.0 (Q4 2028)**
 - [ ] Complete OS installation ISO
 - [ ] Bootable USB/CD image
 - [ ] Graphical installer
@@ -708,7 +708,7 @@ graph TD
 ### 10.6 Backward Compatibility
 
 **Supporting Existing Zenus (v1.x) Users**:
-- [ ] Compatibility layer (Zenus 1.x API on Zenus OS 2.0)
+- [ ] Compatibility layer (Zenus 1.x API on Zenus 2.0)
 - [ ] Migration scripts (convert configs, data)
 - [ ] Dual-boot support
 - [ ] Virtual machine mode (run old Zenus in VM)
@@ -772,7 +772,7 @@ graph TD
 - Custom file system designed for AI workloads
 - Native vector/tensor operations in kernel
 
-This is the ultimate evolution: **Zenus OS becomes an actual operating system, not just a system manager.**
+This is the ultimate evolution: **Zenus becomes an actual operating system, not just a system manager.**
 
 ---
 
@@ -817,7 +817,7 @@ Things to decide as we build:
 This is an ambitious roadmap. We can't build it alone.
 
 **Contribute:**
-- Code: https://github.com/Guillhermm/zenus_os
+- Code: https://github.com/Guillhermm/zenus
 - Ideas: Open a discussion
 - Bugs: File an issue
 - Docs: Improve documentation

@@ -2,14 +2,14 @@
 set -e
 
 echo "╔════════════════════════════════════╗"
-echo "║   Zenus OS Update Script           ║"
+echo "║   Zenus Update Script           ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 
 # Get absolute path to project
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "Updating Zenus OS packages..."
+echo "Updating Zenus packages..."
 echo ""
 
 # Update core package

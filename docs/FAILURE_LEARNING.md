@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zenus OS learns from execution failures to prevent repeating mistakes and suggest intelligent recovery strategies.
+Zenus learns from execution failures to prevent repeating mistakes and suggest intelligent recovery strategies.
 
 ## Architecture
 

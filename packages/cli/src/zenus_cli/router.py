@@ -116,7 +116,7 @@ class CommandRouter:
     def show_help(self):
         """Display help message"""
         help_text = f"""
-Zenus OS v{self.version}
+Zenus v{self.version}
 A developer-centric, CLI-first, agent-driven operating layer
 
 USAGE:
@@ -172,10 +172,10 @@ CREDENTIALS:
 LOGS:
     Audit logs: ~/.zenus/logs/
 
-For more information, visit: https://github.com/Guillhermm/zenus_os
+For more information, visit: https://github.com/Guillhermm/zenus
         """.strip()
         print(help_text)
 
     def show_version(self):
         """Display version information"""
-        print(f"Zenus OS v{self.version}")
+        print(f"Zenus v{self.version}")

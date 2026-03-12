@@ -1,1 +1,1 @@
-"""Integration tests for Zenus OS"""
+"""Integration tests for Zenus"""

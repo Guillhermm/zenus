@@ -1,7 +1,7 @@
 """
 Context Module
 
-Provides environmental awareness to Zenus OS.
+Provides environmental awareness to Zenus.
 """
 
 from zenus_core.context.context_manager import ContextManager, get_context_manager

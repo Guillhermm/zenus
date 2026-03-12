@@ -1,5 +1,5 @@
 """
-Visualization module for Zenus OS
+Visualization module for Zenus
 
 Auto-generates charts, tables, and rich output from data.
 """

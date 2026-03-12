@@ -2,7 +2,7 @@
 
 ## Overview
 
-Zenus OS now supports **iterative execution** using the ReAct (Reasoning + Acting) pattern. This allows Zenus to solve complex, multi-step problems by continuously planning, executing, observing, and re-planning until the goal is achieved.
+Zenus now supports **iterative execution** using the ReAct (Reasoning + Acting) pattern. This allows Zenus to solve complex, multi-step problems by continuously planning, executing, observing, and re-planning until the goal is achieved.
 
 ## Problem Solved
 
@@ -320,7 +320,7 @@ If not achieved, what are the next logical steps?
 
 Run GoalTracker tests:
 ```bash
-cd ~/projects/zenus_os
+cd ~/projects/zenus
 source .venv/bin/activate
 pytest tests/test_goal_tracker.py -v
 ```

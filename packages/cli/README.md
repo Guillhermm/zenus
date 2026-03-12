@@ -1,6 +1,6 @@
 # Zenus CLI
 
-Command-line interface for Zenus OS.
+Command-line interface for Zenus.
 
 ## Installation
 

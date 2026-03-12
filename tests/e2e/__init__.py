@@ -1,1 +1,1 @@
-"""End-to-end tests for Zenus OS workflows"""
+"""End-to-end tests for Zenus workflows"""

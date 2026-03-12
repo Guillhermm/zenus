@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "zenus-visualization"
 version = "0.1.0"
-description = "Data visualization system for Zenus OS"
+description = "Data visualization system for Zenus"
 authors = ["Zeni"]
 readme = "README.md"
 packages = [{include = "zenus_visualization", from = "src"}]

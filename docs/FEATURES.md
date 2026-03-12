@@ -1,4 +1,4 @@
-# Zenus OS Features
+# Zenus Features
 
 Complete guide to all features and capabilities.
 

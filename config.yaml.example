@@ -1,4 +1,4 @@
-# Zenus OS Configuration
+# Zenus Configuration
 # Copy to ~/.zenus/config.yaml or ./zenus.yaml
 
 version: "0.5.1"
