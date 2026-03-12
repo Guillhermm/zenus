@@ -2,7 +2,7 @@
 set -e
 
 echo "╔════════════════════════════════════╗"
-echo "║   Zenus OS Installation Script     ║"
+echo "║    Zenus Installation Script       ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 
