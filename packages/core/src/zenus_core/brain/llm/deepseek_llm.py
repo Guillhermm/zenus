@@ -107,11 +107,16 @@ class DeepSeekLLM:
                             config_max_tokens = config_data['llm'].get('max_tokens')
                             break
         except Exception:
-            pass
+            print(f"[DeepSeekLLM] WARNING: Failed to read config.yaml: {e}")
+            import traceback
+            traceback.print_exc()
 
         self.model = config_model or os.getenv("LLM_MODEL", "deepseek-chat")
         self.max_tokens = config_max_tokens or int(os.getenv("LLM_TOKENS", "8192"))
-    
+
+        if not config_model:
+            print(f"[DeepSeekLLM] Using fallback model: {self.model}")
+
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         response = self.client.chat.completions.create(
             model=self.model,

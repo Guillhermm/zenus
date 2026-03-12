@@ -57,7 +57,6 @@ class OpenAILLM:
                         if config_data and 'llm' in config_data:
                             config_model = config_data['llm'].get('model')
                             config_max_tokens = config_data['llm'].get('max_tokens')
-                            print(f"[OpenAILLM] Loaded from {config_path}: model={config_model}, max_tokens={config_max_tokens}")
                             break
         except Exception as e:
             print(f"[OpenAILLM] WARNING: Failed to read config.yaml: {e}")
