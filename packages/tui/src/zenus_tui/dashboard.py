@@ -230,12 +230,17 @@ class CommandInput(Container):
         return self.command_history[self.history_index]
 
 
-class ExecutionLog(ScrollableContainer):
-    """Live execution log viewer with real-time updates"""
+class ExecutionLog(Vertical):
+    """Live execution log viewer with real-time updates.
+
+    Uses a fixed-height RichLog (height: 1fr) with auto_scroll so Textual's
+    built-in scroll mechanism handles keeping the latest output visible.
+    """
 
     def compose(self) -> ComposeResult:
         # markup=False so timestamps like [12:34:56] are never parsed as Rich tags
-        yield RichLog(id="execution-log", highlight=False, markup=False)
+        # auto_scroll=True (default) scrolls to bottom on every write()
+        yield RichLog(id="execution-log", highlight=False, markup=False, auto_scroll=True)
 
     def on_mount(self):
         log = self.query_one("#execution-log", RichLog)
@@ -263,12 +268,10 @@ class ExecutionLog(ScrollableContainer):
             log.write("  → (completed, no output)" if success else "  → (failed, no output)")
 
         log.write("")  # blank separator
-        self.scroll_end(animate=False)  # scroll the container, not the inner RichLog
 
     def add_progress(self, message: str):
         log = self.query_one("#execution-log", RichLog)
         log.write(f"⏳ {message}")
-        self.scroll_end(animate=False)
 
     def clear_log(self):
         log = self.query_one("#execution-log", RichLog)
@@ -642,19 +645,18 @@ class ZenusDashboard(App):
     }
     
     #execution-log-container {
-        height: 60%;
+        height: 1fr;
         border: solid $primary;
-        padding: 1;
+        padding: 0 1;
     }
-    
+
     #execution-log {
-        width: 100%;
-        height: auto;
-        min-height: 100%;
+        height: 1fr;
     }
-    
+
     #pattern-suggestion {
-        height: 40%;
+        height: auto;
+        max-height: 8;
         border: solid yellow;
         background: $panel;
         padding: 1;
