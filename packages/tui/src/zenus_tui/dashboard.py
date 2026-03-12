@@ -123,7 +123,7 @@ class ModelPickerScreen(ModalScreen):
                 yield Button("Cancel", variant="default", id="cancel-btn")
 
     def _model_options(self, provider: str):
-        return [(mid, f"{mid}  —  {desc}") for mid, desc in PROVIDER_MODELS.get(provider, [])]
+        return [(f"{mid}  —  {desc}", mid) for mid, desc in PROVIDER_MODELS.get(provider, [])]
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "provider-select":
@@ -263,12 +263,12 @@ class ExecutionLog(ScrollableContainer):
             log.write("  → (completed, no output)" if success else "  → (failed, no output)")
 
         log.write("")  # blank separator
-        log.scroll_end(animate=False)  # ensure newest entry is visible
+        self.scroll_end(animate=False)  # scroll the container, not the inner RichLog
 
     def add_progress(self, message: str):
         log = self.query_one("#execution-log", RichLog)
         log.write(f"⏳ {message}")
-        log.scroll_end(animate=False)
+        self.scroll_end(animate=False)
 
     def clear_log(self):
         log = self.query_one("#execution-log", RichLog)
@@ -485,6 +485,139 @@ class RollbackPanel(Container):
         status.update(f"[{style}]{message}[/{style}]")
 
 
+class SystemView(ScrollableContainer):
+    """System overview tab — shows live info, refreshes on activation."""
+
+    def compose(self) -> ComposeResult:
+        yield RichLog(id="system-log", highlight=True, markup=True)
+
+    def on_mount(self) -> None:
+        self.refresh_info()
+
+    def refresh_info(self) -> None:
+        log = self.query_one("#system-log", RichLog)
+        log.clear()
+        log.write("[bold cyan]🔄 System Overview[/bold cyan]\n")
+        try:
+            import platform, os
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log.write(f"[yellow]Refreshed at:[/yellow] {now}")
+            log.write(f"[yellow]Hostname:[/yellow] {platform.node()}")
+            log.write(f"[yellow]OS:[/yellow] {platform.system()} {platform.release()}")
+            log.write(f"[yellow]Python:[/yellow] {platform.python_version()}")
+            log.write(f"[yellow]CWD:[/yellow] {os.getcwd()}")
+        except Exception as e:
+            log.write(f"[red]Error: {e}[/red]")
+
+
+class RollbackView(ScrollableContainer):
+    """Rollback tab — shows recent actions and allows rolling back."""
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="rollback-buttons"):
+            yield Button("⎌ Rollback Last Action", variant="error", id="rollback-last-btn")
+            yield Static("", id="rollback-status")
+        yield RichLog(id="rollback-log", highlight=True, markup=True)
+
+    def on_mount(self) -> None:
+        self.refresh_history()
+
+    def refresh_history(self) -> None:
+        log = self.query_one("#rollback-log", RichLog)
+        log.clear()
+        log.write("[bold cyan]⎌ Recent Actions (rollback candidates)[/bold cyan]\n")
+        try:
+            tracker = get_action_tracker()
+            transactions = tracker.get_recent_transactions(limit=20)
+            if not transactions:
+                log.write("[dim]No recent actions recorded.[/dim]")
+                return
+            for txn in transactions:
+                raw_ts = txn.get("start_time", "")
+                try:
+                    time_str = datetime.fromisoformat(raw_ts).strftime("%m/%d %H:%M")
+                except Exception:
+                    time_str = raw_ts[:16] if raw_ts else "?"
+                command = txn.get("user_input") or txn.get("intent_goal") or "Unknown"
+                status_val = txn.get("status", "")
+                icon = "✓" if status_val == "completed" else "✗"
+                log.write(f"  [{time_str}] {icon} {command[:80]}")
+        except Exception as e:
+            log.write(f"[red]Error loading history: {e}[/red]")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "rollback-last-btn":
+            status = self.query_one("#rollback-status", Static)
+            status.update("[yellow]Rollback is not yet implemented.[/yellow]")
+
+
+class ModelTabView(Container):
+    """Model tab — inline provider/model selection."""
+
+    def compose(self) -> ComposeResult:
+        yield Label("[bold]LLM Provider & Model[/bold]", id="model-tab-title")
+        provider_options = [(p, p) for p in PROVIDER_MODELS]
+        yield Select(options=provider_options, id="tab-provider-select")
+        yield Select(
+            options=self._model_options("anthropic"),
+            id="tab-model-select",
+        )
+        yield Button("Apply", variant="primary", id="tab-apply-btn")
+        yield Static("", id="tab-model-status")
+
+    def _model_options(self, provider: str):
+        return [(f"{mid}  —  {desc}", mid) for mid, desc in PROVIDER_MODELS.get(provider, [])]
+
+    def on_mount(self) -> None:
+        """Pre-select current provider/model from config if available."""
+        try:
+            from zenus_core.config.loader import get_config
+            cfg = get_config()
+            provider = cfg.llm.provider
+            model = cfg.llm.model or PROVIDER_MODELS[provider][0][0]
+            self.query_one("#tab-provider-select", Select).value = provider
+            opts = self._model_options(provider)
+            self.query_one("#tab-model-select", Select).set_options(opts)
+            self.query_one("#tab-model-select", Select).value = model
+        except Exception:
+            pass
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "tab-provider-select":
+            provider = str(event.value)
+            opts = self._model_options(provider)
+            self.query_one("#tab-model-select", Select).set_options(opts)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "tab-apply-btn":
+            return
+        provider = str(self.query_one("#tab-provider-select", Select).value)
+        model = str(self.query_one("#tab-model-select", Select).value)
+        status = self.query_one("#tab-model-status", Static)
+
+        def save():
+            try:
+                from zenus_core.shell.commands import _update_config_provider
+                _update_config_provider(provider, model)
+                self.call_from_thread(
+                    status.update,
+                    f"[green]✓ Saved: {provider} / {model}[/green]",
+                )
+                # Propagate to the app-level active override
+                app = self.app
+                app.active_provider = provider
+                app.active_model = model
+                app.sub_title = f"{provider} / {model}  [override]"
+            except Exception as e:
+                self.call_from_thread(
+                    status.update,
+                    f"[red]Save failed: {e}[/red]",
+                )
+
+        import asyncio
+        self.run_worker(asyncio.get_event_loop().run_in_executor(None, save))
+
+
 class ZenusDashboard(App):
     """Zenus OS TUI Dashboard - Polished Edition"""
     
@@ -517,6 +650,7 @@ class ZenusDashboard(App):
     #execution-log {
         width: 100%;
         height: auto;
+        min-height: 100%;
     }
     
     #pattern-suggestion {
@@ -559,9 +693,11 @@ class ZenusDashboard(App):
         Binding("f2", "tab('history')", "History", show=True),
         Binding("f3", "tab('memory')", "Memory", show=True),
         Binding("f4", "tab('explain')", "Explain", show=True),
-        Binding("f5", "refresh", "Refresh", show=True),
-        Binding("ctrl+r", "rollback", "Rollback", show=True),
-        Binding("ctrl+m", "pick_model", "Model", show=True),
+        Binding("f5", "tab('refresh')", "Refresh", show=True),
+        Binding("f6", "tab('rollback')", "Rollback", show=True),
+        Binding("f7", "tab('model')", "Model", show=True),
+        Binding("ctrl+r", "tab('rollback')", "Rollback", show=False),
+        Binding("ctrl+m", "tab('model')", "Model", show=False),
     ]
 
     def __init__(self):
@@ -594,15 +730,24 @@ class ZenusDashboard(App):
             with TabPane("Execution", id="execution-tab"):
                 yield ExecutionLog(id="execution-log-container")
                 yield PatternSuggestion(id="pattern-suggestion")
-            
+
             with TabPane("History", id="history-tab"):
                 yield HistoryView(id="history-view")
-            
+
             with TabPane("Memory", id="memory-tab"):
                 yield MemoryView(id="memory-view")
-            
+
             with TabPane("Explain", id="explain-tab"):
                 yield ExplainView(id="explain-view")
+
+            with TabPane("Refresh", id="refresh-tab"):
+                yield SystemView(id="system-view")
+
+            with TabPane("Rollback", id="rollback-tab"):
+                yield RollbackView(id="rollback-view")
+
+            with TabPane("Model", id="model-tab"):
+                yield ModelTabView(id="model-tab-view")
         
         # Command input area
         yield CommandInput(id="command-input-area")
@@ -857,16 +1002,18 @@ class ZenusDashboard(App):
         tabs.active = f"{tab_name}-tab"
     
     def action_refresh(self) -> None:
-        """Refresh current tab"""
+        """Refresh current tab data"""
         tabs = self.query_one("#main-tabs", TabbedContent)
         active_tab = tabs.active
-        
+
         if active_tab == "history-tab":
-            history_view = self.query_one("#history-view", HistoryView)
-            history_view.refresh_history()
+            self.query_one("#history-view", HistoryView).refresh_history()
         elif active_tab == "memory-tab":
-            memory_view = self.query_one("#memory-view", MemoryView)
-            memory_view.refresh_memory()
+            self.query_one("#memory-view", MemoryView).refresh_memory()
+        elif active_tab == "refresh-tab":
+            self.query_one("#system-view", SystemView).refresh_info()
+        elif active_tab == "rollback-tab":
+            self.query_one("#rollback-view", RollbackView).refresh_history()
     
     def action_clear_log(self) -> None:
         """Clear execution log"""
@@ -874,51 +1021,12 @@ class ZenusDashboard(App):
         exec_log.clear_log()
     
     def action_rollback(self) -> None:
-        """Rollback last command"""
-        # TODO: Implement rollback via action_tracker
-        status_bar = self.query_one("#status-bar", StatusBar)
-        status_bar.update_status(last_result="Rollback not yet implemented")
+        """Switch to Rollback tab."""
+        self.action_tab("rollback")
 
     def action_pick_model(self) -> None:
-        """Open model picker modal (Ctrl+M)."""
-        current_provider = self.active_provider or "anthropic"
-        current_model = self.active_model or ""
-
-        def on_dismiss(result) -> None:
-            """Called by Textual when the modal is closed."""
-            if result is None:
-                return  # Cancelled
-
-            provider, model = result
-            self.active_provider = provider
-            self.active_model = model
-
-            # Update subtitle to reflect session override
-            self.sub_title = f"{provider} / {model}  [override]"
-
-            # Persist as the new default in config.yaml (runs in thread pool)
-            def save():
-                try:
-                    from zenus_core.shell.commands import _update_config_provider
-                    _update_config_provider(provider, model)
-                    self.call_from_thread(
-                        self.notify,
-                        f"Default set to {provider}/{model}",
-                        severity="information",
-                    )
-                except Exception as e:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Session override active. Config save failed: {e}",
-                        severity="warning",
-                    )
-
-            self.run_worker(asyncio.get_event_loop().run_in_executor(None, save))
-
-        self.push_screen(
-            ModelPickerScreen(current_provider, current_model),
-            callback=on_dismiss,
-        )
+        """Switch to Model tab."""
+        self.action_tab("model")
 
 
 def main():
