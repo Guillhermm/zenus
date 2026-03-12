@@ -33,6 +33,17 @@ from zenus_core.brain.pattern_detector import PatternDetector
 from zenus_core.memory.world_model import WorldModel
 
 
+class CommandCompleted(Message):
+    """Posted by the async worker when a command finishes executing."""
+
+    def __init__(self, command: str, result: str, duration: float, success: bool) -> None:
+        super().__init__()
+        self.command = command
+        self.result = result
+        self.duration = duration
+        self.success = success
+
+
 PROVIDER_MODELS = {
     "anthropic": [
         ("claude-sonnet-4-6", "Sonnet 4.6 — balanced (recommended)"),
@@ -770,12 +781,17 @@ class ZenusDashboard(App):
         finally:
             # Calculate duration
             duration = (datetime.now() - start_time).total_seconds()
-            
-            # Update UI directly (we're already in async context on event loop)
-            self._update_after_execution(command, result, duration, success)
-    
+
+            # Post a message so Textual delivers the UI update on the event loop
+            # in a safe, well-defined render cycle (avoids worker mutation issues).
+            self.post_message(CommandCompleted(command, result, duration, success))
+
+    def on_command_completed(self, event: CommandCompleted) -> None:
+        """Handle CommandCompleted message on the main event loop."""
+        self._update_after_execution(event.command, event.result, event.duration, event.success)
+
     def _update_after_execution(self, command: str, result: str, duration: float, success: bool):
-        """Update UI after command execution (on main thread)"""
+        """Update UI after command execution (on main event loop)."""
         # Increment command count
         self.command_count += 1
         
@@ -785,13 +801,9 @@ class ZenusDashboard(App):
         status_bar.update_status(self.command_count, status_text)
         
         # Hide spinner and add to execution log
-        try:
-            exec_log = self.query_one("#execution-log-container", ExecutionLog)
-            exec_log.hide_spinner()
-            exec_log.add_execution(command, result, duration, success)
-        except Exception as e:
-            # If log fails, at least update status bar with error
-            status_bar.update_status(self.command_count, f"Log Error: {e}")
+        exec_log = self.query_one("#execution-log-container", ExecutionLog)
+        exec_log.hide_spinner()
+        exec_log.add_execution(command, result, duration, success)
         
         # Check for patterns (every 10 commands)
         if self.command_count % 10 == 0:

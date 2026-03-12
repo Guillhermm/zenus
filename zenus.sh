@@ -8,5 +8,4 @@ if [ ! -f "$VENV/bin/zenus" ]; then
     exit 1
 fi
 
-cd "$SCRIPT_DIR"
 exec "$VENV/bin/zenus" "$@"
