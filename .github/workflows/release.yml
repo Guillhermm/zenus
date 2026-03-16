@@ -3,8 +3,6 @@ name: Release
 # Triggered by version tags: v0.6.0, v1.0.0, v1.2.3-beta.1, etc.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
