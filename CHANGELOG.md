@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CI: snap store publish glob not expanded**: `snapcore/action-publish@v1` passes the `snap:` value directly to `snapcraft upload` without shell glob expansion; added a preceding step to resolve `artifacts/*.snap` to the actual filename via `ls`.
 - **CI: release workflow triggering on branch pushes**: `on.push.branches: [main]` was incorrectly added to `release.yml`, causing `GITHUB_REF` to resolve to `refs/heads/main` instead of a tag — `VERSION` would then contain `/` which broke `sed`'s `/` delimiter in all version-stamping steps; reverted to tag-only trigger.
 - **CI: remove venv caching**: caching `.venv` across runs caused stale symlinks and broken interpreter paths; always creating the venv fresh is simpler and reliable.
 - **CI: snap build syntax error**: the `sed` pattern `version: .*` contains `: ` which YAML interprets as a key-value separator in an unquoted scalar; wrapped the `run:` value in a block scalar (`|`) to fix the parse error.
