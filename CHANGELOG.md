@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **CI: remove venv caching**: caching `.venv` across runs caused stale symlinks and broken interpreter paths; always creating the venv fresh is simpler and reliable.
-- **CI: snap build syntax error**: replaced `${{ env.VERSION }}` with `$VERSION` in `release.yml` snap stamp step — the GHA expression inside an unquoted YAML scalar caused a parse error; the shell env var (already set via `$GITHUB_ENV`) is the correct reference.
+- **CI: snap build syntax error**: the `sed` pattern `version: .*` contains `: ` which YAML interprets as a key-value separator in an unquoted scalar; wrapped the `run:` value in a block scalar (`|`) to fix the parse error.
 
 ---
 
