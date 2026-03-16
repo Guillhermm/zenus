@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **CI: venv cache breaking Python path**: added `id: cache-venv` to the cache step and gated the install step with `if: steps.cache-venv.outputs.cache-hit != 'true'` — on a cache hit, `python -m venv .venv` was running again over a restored venv, leaving stale symlinks to a non-existent interpreter path.
 - **CI: snap build syntax error**: replaced `${{ env.VERSION }}` with `$VERSION` in `release.yml` snap stamp step — the GHA expression inside an unquoted YAML scalar caused a parse error; the shell env var (already set via `$GITHUB_ENV`) is the correct reference.
 
 ---
