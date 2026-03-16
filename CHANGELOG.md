@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **CI: snap build syntax error**: replaced `${{ env.VERSION }}` with `$VERSION` in `release.yml` snap stamp step — the GHA expression inside an unquoted YAML scalar caused a parse error; the shell env var (already set via `$GITHUB_ENV`) is the correct reference.
+
 ---
 
 ## [0.6.0] - 2026-03-12

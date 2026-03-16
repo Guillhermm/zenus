@@ -122,7 +122,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Stamp version into snapcraft.yaml
-        run: sed -i "s/^version: .*/version: '${{ env.VERSION }}'/" snap/snapcraft.yaml
+        run: sed -i "s/^version: .*/version: '$VERSION'/" snap/snapcraft.yaml
 
       - name: Build snap
         id: build
