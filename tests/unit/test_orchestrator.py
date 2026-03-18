@@ -1,482 +1,694 @@
 """
-Tests for the Orchestrator class
+Tests for zenus_core.orchestrator
 """
 
 import pytest
-from contextlib import ExitStack
-from unittest.mock import Mock, patch, MagicMock, call
+from contextlib import contextmanager, ExitStack
+from unittest.mock import Mock, MagicMock, patch, call
+
+from zenus_core.brain.llm.schemas import IntentIR, Step
+
+MODULE = "zenus_core.orchestrator"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_step(tool="FileOps", action="scan", args=None, risk=0):
-    """Return a minimal mock Step."""
-    step = Mock()
-    step.tool = tool
-    step.action = action
-    step.args = args or {"path": "/tmp"}
-    step.risk = risk
-    return step
+def _make_step(tool="FileOps", action="scan", risk=0):
+    return Step(tool=tool, action=action, args={}, risk=risk)
 
 
-def _make_intent(goal="test goal", steps=None, requires_confirmation=False):
-    """Return a minimal mock IntentIR."""
-    intent = Mock()
-    intent.goal = goal
-    intent.requires_confirmation = requires_confirmation
-    intent.steps = steps or [_make_step()]
-    intent.to_dict = Mock(return_value={"goal": goal, "steps": []})
-    return intent
+def _make_intent(goal="do something", steps=None):
+    if steps is None:
+        steps = [_make_step()]
+    return IntentIR(goal=goal, requires_confirmation=False, steps=steps)
 
 
-# ---------------------------------------------------------------------------
-# Patch targets – everything the Orchestrator __init__ wires up
-# ---------------------------------------------------------------------------
-
-PATCH_TARGETS = [
-    "zenus_core.orchestrator.get_llm",
-    "zenus_core.orchestrator.get_logger",
-    "zenus_core.orchestrator.AdaptivePlanner",
-    "zenus_core.orchestrator.SandboxedAdaptivePlanner",
-    "zenus_core.orchestrator.SessionMemory",
-    "zenus_core.orchestrator.WorldModel",
-    "zenus_core.orchestrator.IntentHistory",
-    "zenus_core.orchestrator.ProgressIndicator",
-    "zenus_core.orchestrator.ResponseGenerator",
-    "zenus_core.orchestrator.FailureAnalyzer",
-    "zenus_core.orchestrator.get_action_tracker",
-    "zenus_core.orchestrator.DependencyAnalyzer",
-    "zenus_core.orchestrator.get_parallel_executor",
-    "zenus_core.orchestrator.get_suggestion_engine",
-    "zenus_core.orchestrator.get_router",
-    "zenus_core.orchestrator.get_intent_cache",
-    "zenus_core.orchestrator.get_feedback_collector",
-    "zenus_core.orchestrator.get_metrics_collector",
-    "zenus_core.orchestrator.get_formatter",
-    "zenus_core.orchestrator.TaskAnalyzer",
-    "zenus_core.orchestrator.get_tree_of_thoughts",
-    "zenus_core.orchestrator.get_prompt_evolution",
-    "zenus_core.orchestrator.get_goal_inference",
-    "zenus_core.orchestrator.get_multi_agent_system",
-    "zenus_core.orchestrator.get_proactive_monitor",
-    "zenus_core.orchestrator.get_self_reflection",
-    "zenus_core.orchestrator.get_visualizer",
-    "zenus_core.orchestrator.ExplainMode",
-]
-
-
-def _make_orchestrator(**kwargs):
-    """Instantiate Orchestrator with all dependencies mocked out using ExitStack."""
-    from zenus_core.orchestrator import Orchestrator
+@contextmanager
+def _orchestrator_ctx(**orch_kwargs):
+    """
+    Yields (orchestrator, mocks_dict) with all external dependencies mocked.
+    Defaults create a minimal no-feature orchestrator.
+    """
+    defaults = dict(
+        adaptive=False,
+        use_memory=False,
+        show_progress=False,
+        enable_parallel=False,
+        enable_tree_of_thoughts=False,
+        enable_prompt_evolution=False,
+        enable_goal_inference=False,
+        enable_multi_agent=False,
+        enable_proactive_monitoring=False,
+        enable_self_reflection=False,
+        enable_visualization=False,
+    )
+    defaults.update(orch_kwargs)
 
     with ExitStack() as stack:
-        patches = {t: stack.enter_context(patch(t)) for t in PATCH_TARGETS}
+        mocks = {}
+        for name in [
+            "get_llm", "get_logger",
+            "AdaptivePlanner", "SandboxedAdaptivePlanner",
+            "TaskAnalyzer", "FailureAnalyzer", "DependencyAnalyzer",
+            "get_suggestion_engine", "get_router",
+            "get_tree_of_thoughts", "get_prompt_evolution", "get_goal_inference",
+            "get_multi_agent_system", "get_self_reflection", "get_proactive_monitor",
+            "get_action_tracker", "get_parallel_executor", "get_intent_cache",
+            "get_feedback_collector", "get_metrics_collector", "get_formatter",
+            "SessionMemory", "WorldModel", "IntentHistory",
+            "ProgressIndicator", "ResponseGenerator", "ExplainMode",
+            "get_context_manager",
+            "console", "print_success", "print_error", "print_goal", "print_step",
+        ]:
+            mocks[name] = stack.enter_context(patch(f"{MODULE}.{name}"))
 
-        mock_router = patches["zenus_core.orchestrator.get_router"]
-        mock_cache = patches["zenus_core.orchestrator.get_intent_cache"]
+        stack.enter_context(patch(f"{MODULE}.VISUALIZATION_AVAILABLE", False))
 
-        mock_router.return_value.route.return_value = ("anthropic", Mock(score=0.3))
-        mock_router.return_value.get_stats.return_value = {
+        # ---- logger ----
+        mock_logger = Mock()
+        mocks["get_logger"].return_value = mock_logger
+
+        # ---- router ----
+        mock_router = Mock()
+        mock_router.route.return_value = ("claude-3-haiku", Mock(score=0.3))
+        mock_router.track_tokens = Mock()
+        mock_router.get_stats.return_value = {
             "session": {"tokens_used": 0, "estimated_cost": 0.0}
         }
-        mock_cache.return_value.get.return_value = None
+        mocks["get_router"].return_value = mock_router
 
-        orch = Orchestrator(**kwargs)
-        orch.logger = Mock()
-        orch.adaptive_planner = Mock()
-        orch.adaptive_planner.execute_with_retry.return_value = ["result1"]
-        orch.action_tracker = Mock()
-        orch.action_tracker.start_transaction.return_value = "txn-1"
+        # ---- suggestion engine ----
+        mock_suggestions = Mock()
+        mock_suggestions.analyze.return_value = []
+        mocks["get_suggestion_engine"].return_value = mock_suggestions
 
-    return orch
+        # ---- action tracker ----
+        mock_tracker = Mock()
+        mock_tracker.start_transaction.return_value = "txn-1"
+        mocks["get_action_tracker"].return_value = mock_tracker
 
+        # ---- intent cache (miss by default) ----
+        mock_cache = Mock()
+        mock_cache.get.return_value = None
+        mocks["get_intent_cache"].return_value = mock_cache
 
-# ===========================================================================
-# Orchestrator Initialisation
-# ===========================================================================
-
-class TestOrchestratorInit:
-    """Test Orchestrator initialisation"""
-
-    def test_initializes_with_defaults(self):
-        """Orchestrator initialises without raising any exceptions"""
-        orch = _make_orchestrator()
-        assert orch is not None
-
-    def test_adaptive_flag_stored(self):
-        """adaptive flag is stored on instance"""
-        orch = _make_orchestrator(adaptive=True)
-        assert orch.adaptive is True
-
-    def test_use_memory_flag_stored(self):
-        """use_memory flag is stored on instance"""
-        orch = _make_orchestrator(use_memory=True)
-        assert orch.use_memory is True
-
-    def test_use_sandbox_flag_stored(self):
-        """use_sandbox flag is stored on instance"""
-        orch = _make_orchestrator(use_sandbox=True)
-        assert orch.use_sandbox is True
-
-    def test_show_progress_flag_stored(self):
-        """show_progress flag is stored on instance"""
-        orch = _make_orchestrator(show_progress=False)
-        assert orch.show_progress is False
-
-    def test_non_adaptive_has_no_adaptive_planner(self):
-        """adaptive=False means no adaptive_planner is created"""
-        from zenus_core.orchestrator import Orchestrator
-
-        with ExitStack() as stack:
-            patches = {t: stack.enter_context(patch(t)) for t in PATCH_TARGETS}
-            mock_ap = patches["zenus_core.orchestrator.AdaptivePlanner"]
-            mock_sp = patches["zenus_core.orchestrator.SandboxedAdaptivePlanner"]
-            mock_router = patches["zenus_core.orchestrator.get_router"]
-            mock_router.return_value.route.return_value = ("anthropic", Mock(score=0.3))
-
-            orch = Orchestrator(adaptive=False)
-            mock_ap.assert_not_called()
-            mock_sp.assert_not_called()
-
-
-# ===========================================================================
-# _format_dry_run
-# ===========================================================================
-
-class TestFormatDryRun:
-    """Test Orchestrator._format_dry_run"""
-
-    def setup_method(self):
-        """Create Orchestrator."""
-        self.orch = _make_orchestrator()
-
-    def test_includes_goal(self):
-        """_format_dry_run output mentions the intent goal"""
-        intent = _make_intent(goal="list all files")
-        result = self.orch._format_dry_run(intent)
-        assert "list all files" in result
-
-    def test_includes_dry_run_label(self):
-        """_format_dry_run output is labelled as DRY RUN"""
-        intent = _make_intent()
-        result = self.orch._format_dry_run(intent)
-        assert "DRY RUN" in result
-
-    def test_includes_step_info(self):
-        """_format_dry_run includes tool and action names"""
-        step = _make_step(tool="FileOps", action="scan")
-        intent = _make_intent(steps=[step])
-        result = self.orch._format_dry_run(intent)
-        assert "FileOps" in result
-        assert "scan" in result
-
-    def test_numbers_steps(self):
-        """_format_dry_run numbers each step"""
-        intent = _make_intent(steps=[_make_step(), _make_step(action="mkdir")])
-        result = self.orch._format_dry_run(intent)
-        assert "1." in result
-        assert "2." in result
-
-
-# ===========================================================================
-# visualize_result
-# ===========================================================================
-
-class TestVisualizeResult:
-    """Test Orchestrator.visualize_result"""
-
-    def setup_method(self):
-        """Create Orchestrator with mocked visualizer."""
-        self.orch = _make_orchestrator(enable_visualization=True)
-        self.orch.visualizer = Mock()
-        self.orch.enable_visualization = True
-        self.orch.visualizer.visualize.return_value = "chart output"
-
-    def test_delegates_to_visualizer(self):
-        """visualize_result calls visualizer.visualize and returns result"""
-        result = self.orch.visualize_result({"a": 1}, title="Test")
-        self.orch.visualizer.visualize.assert_called_once_with({"a": 1}, title="Test")
-        assert result == "chart output"
-
-    def test_returns_str_when_visualizer_disabled(self):
-        """visualize_result falls back to str() when visualization disabled"""
-        self.orch.enable_visualization = False
-        self.orch.visualizer = None
-        result = self.orch.visualize_result(42)
-        assert result == "42"
-
-    def test_returns_str_on_visualizer_exception(self):
-        """visualize_result falls back to str() on exception"""
-        self.orch.visualizer.visualize.side_effect = RuntimeError("render error")
-        result = self.orch.visualize_result("data")
-        assert isinstance(result, str)
-
-
-# ===========================================================================
-# run_health_check
-# ===========================================================================
-
-class TestRunHealthCheck:
-    """Test Orchestrator.run_health_check"""
-
-    def setup_method(self):
-        """Create Orchestrator."""
-        self.orch = _make_orchestrator()
-
-    def test_returns_disabled_when_monitoring_off(self):
-        """run_health_check returns disabled status when monitoring not enabled"""
-        self.orch.enable_proactive_monitoring = False
-        self.orch.proactive_monitor = None
-        result = self.orch.run_health_check()
-        assert result["status"] == "disabled"
-
-    def test_returns_ok_with_no_alerts(self):
-        """run_health_check returns ok status when no alerts"""
-        self.orch.enable_proactive_monitoring = True
-        mock_monitor = Mock()
-        mock_monitor.run_checks.return_value = []
-        mock_monitor.get_status.return_value = {"checks": []}
-        self.orch.proactive_monitor = mock_monitor
-        result = self.orch.run_health_check()
-        assert result["status"] == "ok"
-        assert result["alerts"] == 0
-
-    def test_returns_alert_count(self):
-        """run_health_check includes count of alerts found"""
-        self.orch.enable_proactive_monitoring = True
-        mock_alert = Mock()
-        mock_alert.auto_remediated = False
-        mock_alert.remediation_result = None
-        mock_alert.level.value = "warning"
-        mock_alert.message = "disk low"
-        mock_monitor = Mock()
-        mock_monitor.run_checks.return_value = [mock_alert]
-        mock_monitor.get_status.return_value = {"checks": []}
-        self.orch.proactive_monitor = mock_monitor
-        result = self.orch.run_health_check()
-        assert result["alerts"] == 1
-
-    def test_returns_error_on_exception(self):
-        """run_health_check returns error status when exception occurs"""
-        self.orch.enable_proactive_monitoring = True
-        mock_monitor = Mock()
-        mock_monitor.run_checks.side_effect = RuntimeError("check failed")
-        self.orch.proactive_monitor = mock_monitor
-        result = self.orch.run_health_check()
-        assert result["status"] == "error"
-
-    def test_counts_auto_remediated_alerts(self):
-        """run_health_check counts auto-remediated alerts"""
-        self.orch.enable_proactive_monitoring = True
-        mock_alert = Mock()
-        mock_alert.auto_remediated = True
-        mock_alert.remediation_result = "cleaned"
-        mock_alert.level.value = "warning"
-        mock_alert.message = "fixed"
-        mock_monitor = Mock()
-        mock_monitor.run_checks.return_value = [mock_alert]
-        mock_monitor.get_status.return_value = {}
-        self.orch.proactive_monitor = mock_monitor
-        result = self.orch.run_health_check()
-        assert result["auto_remediated"] == 1
-
-
-# ===========================================================================
-# execute_with_multi_agent
-# ===========================================================================
-
-class TestExecuteWithMultiAgent:
-    """Test Orchestrator.execute_with_multi_agent"""
-
-    def setup_method(self):
-        """Create Orchestrator."""
-        self.orch = _make_orchestrator()
-
-    def test_returns_disabled_when_not_enabled(self):
-        """execute_with_multi_agent returns disabled message when not enabled"""
-        self.orch.enable_multi_agent = False
-        self.orch.multi_agent = None
-        result = self.orch.execute_with_multi_agent("do something")
-        assert "not enabled" in result
-
-    def test_returns_final_result_on_success(self):
-        """execute_with_multi_agent returns final_result from successful session"""
-        self.orch.enable_multi_agent = True
-        mock_session = Mock()
-        mock_session.success = True
-        mock_session.final_result = "mission accomplished"
-        mock_session.session_id = "abc"
-        mock_session.agents_involved = []
-        mock_session.total_duration = 1.0
-        mock_session.results = []
-        mock_mas = Mock()
-        mock_mas.collaborate.return_value = mock_session
-        self.orch.multi_agent = mock_mas
-        result = self.orch.execute_with_multi_agent("complex task")
-        assert result == "mission accomplished"
-
-    def test_returns_error_on_failed_session(self):
-        """execute_with_multi_agent returns error string on failed session"""
-        self.orch.enable_multi_agent = True
-        mock_session = Mock()
-        mock_session.success = False
-        mock_session.final_result = "could not complete"
-        mock_session.session_id = "abc"
-        mock_session.agents_involved = []
-        mock_session.total_duration = 1.0
-        mock_session.results = []
-        mock_mas = Mock()
-        mock_mas.collaborate.return_value = mock_session
-        self.orch.multi_agent = mock_mas
-        result = self.orch.execute_with_multi_agent("hard task")
-        assert "Error" in result
-
-    def test_returns_error_on_exception(self):
-        """execute_with_multi_agent returns error message on exception"""
-        self.orch.enable_multi_agent = True
-        mock_mas = Mock()
-        mock_mas.collaborate.side_effect = RuntimeError("agents crashed")
-        self.orch.multi_agent = mock_mas
-        result = self.orch.execute_with_multi_agent("task")
-        assert "failed" in result.lower()
-
-
-# ===========================================================================
-# execute_command (dry_run)
-# ===========================================================================
-
-class TestExecuteCommandDryRun:
-    """Test Orchestrator.execute_command with dry_run=True"""
-
-    def setup_method(self):
-        """Create Orchestrator with LLM translate_intent mocked."""
-        self.orch = _make_orchestrator(
-            enable_tree_of_thoughts=False,
-            enable_goal_inference=False,
-            enable_multi_agent=False,
-            enable_proactive_monitoring=False,
-            enable_self_reflection=False,
-            enable_prompt_evolution=False,
-            show_progress=False,
-        )
-        self.intent = _make_intent()
-        self.orch.llm = Mock()
-        self.orch.llm.translate_intent.return_value = self.intent
-        self.orch.task_analyzer = Mock()
-        self.orch.task_analyzer.analyze.return_value = Mock(needs_iteration=False)
-        self.orch.router = Mock()
-        self.orch.router.route.return_value = ("anthropic", Mock(score=0.3))
-        self.orch.intent_cache = Mock()
-        self.orch.intent_cache.get.return_value = None
-        self.orch.failure_analyzer = Mock()
-        self.orch.failure_analyzer.analyze_before_execution.return_value = {
-            "has_warnings": False, "warnings": [], "suggestions": [], "success_probability": 1.0
+        # ---- failure analyzer (no warnings) ----
+        mock_fa = Mock()
+        mock_fa.analyze_before_execution.return_value = {
+            "has_warnings": False,
+            "warnings": [],
+            "suggestions": [],
+            "success_probability": 1.0,
         }
-        self.orch.suggestion_engine = Mock()
-        self.orch.suggestion_engine.analyze.return_value = []
+        mock_fa.analyze_failure.return_value = {
+            "suggestions": [],
+            "is_recurring": False,
+            "similar_failures": [],
+        }
+        mock_fa.generate_recovery_plan.return_value = None
+        mocks["FailureAnalyzer"].return_value = mock_fa
 
-    @patch("zenus_core.orchestrator.get_llm")
-    @patch("zenus_core.orchestrator.get_context_manager")
-    def test_dry_run_returns_dry_run_string(self, mock_ctx, mock_get_llm):
-        """execute_command with dry_run=True returns DRY RUN output"""
-        mock_get_llm.return_value = self.orch.llm
-        mock_ctx.return_value.get_contextual_prompt.return_value = ""
-        mock_ctx.return_value.get_full_context.return_value = {}
-        result = self.orch.execute_command("list files", dry_run=True, force_oneshot=True)
-        assert "DRY RUN" in result
+        # ---- task analyzer (no iteration needed) ----
+        mock_ta = Mock()
+        mock_ta.analyze.return_value = Mock(needs_iteration=False)
+        mocks["TaskAnalyzer"].return_value = mock_ta
 
-    @patch("zenus_core.orchestrator.get_llm")
-    @patch("zenus_core.orchestrator.get_context_manager")
-    def test_dry_run_does_not_execute_plan(self, mock_ctx, mock_get_llm):
-        """execute_command with dry_run=True does not call adaptive_planner"""
-        mock_get_llm.return_value = self.orch.llm
-        mock_ctx.return_value.get_contextual_prompt.return_value = ""
-        mock_ctx.return_value.get_full_context.return_value = {}
-        self.orch.execute_command("list files", dry_run=True, force_oneshot=True)
-        self.orch.adaptive_planner.execute_with_retry.assert_not_called()
+        # ---- context manager ----
+        mock_ctx = Mock()
+        mock_ctx.get_contextual_prompt.return_value = ""
+        mock_ctx.get_full_context.return_value = {}
+        mocks["get_context_manager"].return_value = mock_ctx
 
-    @patch("zenus_core.orchestrator.get_llm")
-    @patch("zenus_core.orchestrator.get_context_manager")
-    def test_intent_logged_before_dry_run(self, mock_ctx, mock_get_llm):
-        """execute_command logs intent even in dry_run mode"""
-        mock_get_llm.return_value = self.orch.llm
-        mock_ctx.return_value.get_contextual_prompt.return_value = ""
-        mock_ctx.return_value.get_full_context.return_value = {}
-        self.orch.execute_command("list files", dry_run=True, force_oneshot=True)
-        self.orch.logger.log_intent.assert_called()
+        from zenus_core.orchestrator import Orchestrator
+        orch = Orchestrator(**defaults)
 
+        # Expose easy references
+        mocks["_logger"] = mock_logger
+        mocks["_router"] = mock_router
+        mocks["_cache"] = mock_cache
+        mocks["_tracker"] = mock_tracker
+        mocks["_fa"] = mock_fa
+        mocks["_ta"] = mock_ta
+        mocks["_ctx"] = mock_ctx
 
-# ===========================================================================
-# execute_command (error paths)
-# ===========================================================================
-
-class TestExecuteCommandErrors:
-    """Test Orchestrator.execute_command error handling"""
-
-    def setup_method(self):
-        """Create Orchestrator."""
-        self.orch = _make_orchestrator(
-            enable_tree_of_thoughts=False,
-            enable_goal_inference=False,
-            enable_multi_agent=False,
-            enable_proactive_monitoring=False,
-            enable_self_reflection=False,
-            enable_prompt_evolution=False,
-            show_progress=False,
-        )
-        self.orch.task_analyzer = Mock()
-        self.orch.task_analyzer.analyze.return_value = Mock(needs_iteration=False)
-        self.orch.router = Mock()
-        self.orch.router.route.return_value = ("anthropic", Mock(score=0.3))
-        self.orch.intent_cache = Mock()
-        self.orch.intent_cache.get.return_value = None
-        self.orch.suggestion_engine = Mock()
-        self.orch.suggestion_engine.analyze.return_value = []
-
-    @patch("zenus_core.orchestrator.get_llm")
-    @patch("zenus_core.orchestrator.get_context_manager")
-    def test_returns_error_on_translation_failure(self, mock_ctx, mock_get_llm):
-        """execute_command returns error string when LLM translate_intent raises"""
-        mock_ctx.return_value.get_contextual_prompt.return_value = ""
-        mock_ctx.return_value.get_full_context.return_value = {}
-        failing_llm = Mock()
-        failing_llm.translate_intent.side_effect = Exception("LLM timeout")
-        mock_get_llm.return_value = failing_llm
-        self.orch.llm = failing_llm
-        result = self.orch.execute_command("do stuff", force_oneshot=True)
-        assert "Error" in result or "error" in result.lower()
-
-    @patch("zenus_core.orchestrator.get_llm")
-    @patch("zenus_core.orchestrator.get_context_manager")
-    def test_logs_error_on_translation_failure(self, mock_ctx, mock_get_llm):
-        """execute_command logs error when translation fails"""
-        mock_ctx.return_value.get_contextual_prompt.return_value = ""
-        mock_ctx.return_value.get_full_context.return_value = {}
-        failing_llm = Mock()
-        failing_llm.translate_intent.side_effect = Exception("timeout")
-        mock_get_llm.return_value = failing_llm
-        self.orch.llm = failing_llm
-        self.orch.execute_command("do stuff", force_oneshot=True)
-        self.orch.logger.log_error.assert_called()
+        yield orch, mocks
 
 
-# ===========================================================================
-# IntentTranslationError / OrchestratorError
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Exception classes
+# ---------------------------------------------------------------------------
 
-class TestOrchestratorExceptions:
-    """Test custom exception classes"""
+class TestExceptions:
 
     def test_intent_translation_error_is_exception(self):
-        """IntentTranslationError is a subclass of Exception"""
         from zenus_core.orchestrator import IntentTranslationError
-        with pytest.raises(IntentTranslationError):
-            raise IntentTranslationError("bad")
+        e = IntentTranslationError("oops")
+        assert isinstance(e, Exception)
+        assert str(e) == "oops"
 
     def test_orchestrator_error_is_exception(self):
-        """OrchestratorError is a subclass of Exception"""
         from zenus_core.orchestrator import OrchestratorError
-        with pytest.raises(OrchestratorError):
-            raise OrchestratorError("oops")
+        e = OrchestratorError("fail")
+        assert isinstance(e, Exception)
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator.__init__
+# ---------------------------------------------------------------------------
+
+class TestOrchestratorInit:
+
+    def test_default_privilege_tier(self):
+        with _orchestrator_ctx() as (orch, _):
+            from zenus_core.tools.privilege import PrivilegeTier
+            assert orch.privilege_tier == PrivilegeTier.STANDARD
+
+    def test_adaptive_false_sets_no_planner(self):
+        with _orchestrator_ctx(adaptive=False) as (orch, _):
+            assert not hasattr(orch, "adaptive_planner")
+
+    def test_adaptive_true_sandbox_creates_sandboxed_planner(self):
+        with _orchestrator_ctx(adaptive=True, use_sandbox=True) as (orch, mocks):
+            mocks["SandboxedAdaptivePlanner"].assert_called_once()
+
+    def test_adaptive_true_no_sandbox_creates_basic_planner(self):
+        with _orchestrator_ctx(adaptive=True, use_sandbox=False) as (orch, mocks):
+            mocks["AdaptivePlanner"].assert_called_once()
+
+    def test_use_memory_false_no_session_memory(self):
+        with _orchestrator_ctx(use_memory=False) as (orch, _):
+            assert not hasattr(orch, "session_memory")
+
+    def test_use_memory_true_creates_memory(self):
+        with _orchestrator_ctx(use_memory=True) as (orch, mocks):
+            mocks["SessionMemory"].assert_called_once()
+            mocks["WorldModel"].assert_called_once()
+            mocks["IntentHistory"].assert_called_once()
+
+    def test_show_progress_false_no_progress(self):
+        with _orchestrator_ctx(show_progress=False) as (orch, _):
+            assert orch.progress is None
+
+    def test_enable_parallel_false_no_executor(self):
+        with _orchestrator_ctx(enable_parallel=False) as (orch, _):
+            assert orch.parallel_executor is None
+            assert orch.dependency_analyzer is None
+
+    def test_visualization_disabled_no_visualizer(self):
+        with _orchestrator_ctx(enable_visualization=False) as (orch, _):
+            assert orch.visualizer is None
+
+    def test_flags_stored(self):
+        with _orchestrator_ctx(
+            enable_tree_of_thoughts=False,
+            enable_prompt_evolution=False,
+            enable_goal_inference=False,
+            enable_multi_agent=False,
+            enable_proactive_monitoring=False,
+            enable_self_reflection=False,
+        ) as (orch, _):
+            assert orch.enable_tree_of_thoughts is False
+            assert orch.enable_multi_agent is False
+            assert orch.enable_proactive_monitoring is False
+
+
+# ---------------------------------------------------------------------------
+# _format_dry_run
+# ---------------------------------------------------------------------------
+
+class TestFormatDryRun:
+
+    def test_contains_goal(self):
+        with _orchestrator_ctx() as (orch, _):
+            intent = _make_intent(goal="list files")
+            result = orch._format_dry_run(intent)
+            assert "list files" in result
+
+    def test_contains_dry_run_marker(self):
+        with _orchestrator_ctx() as (orch, _):
+            intent = _make_intent()
+            result = orch._format_dry_run(intent)
+            assert "DRY RUN" in result
+
+    def test_lists_all_steps(self):
+        with _orchestrator_ctx() as (orch, _):
+            steps = [
+                _make_step("FileOps", "scan", risk=0),
+                _make_step("ShellOps", "run", risk=2),
+            ]
+            intent = _make_intent(steps=steps)
+            result = orch._format_dry_run(intent)
+            assert "FileOps" in result
+            assert "ShellOps" in result
+
+    def test_includes_risk_level(self):
+        with _orchestrator_ctx() as (orch, _):
+            intent = _make_intent(steps=[_make_step(risk=3)])
+            result = orch._format_dry_run(intent)
+            assert "risk=3" in result
+
+    def test_empty_steps(self):
+        with _orchestrator_ctx() as (orch, _):
+            intent = _make_intent(goal="nothing", steps=[])
+            result = orch._format_dry_run(intent)
+            assert "DRY RUN" in result
+            assert "nothing" in result
+
+
+# ---------------------------------------------------------------------------
+# visualize_result
+# ---------------------------------------------------------------------------
+
+class TestVisualizeResult:
+
+    def test_disabled_returns_str_data(self):
+        with _orchestrator_ctx(enable_visualization=False) as (orch, _):
+            result = orch.visualize_result([1, 2, 3])
+            assert result == "[1, 2, 3]"
+
+    def test_no_visualizer_returns_str_data(self):
+        with _orchestrator_ctx(enable_visualization=True) as (orch, _):
+            orch.visualizer = None
+            result = orch.visualize_result({"key": "val"})
+            assert "key" in result
+
+    def test_visualizer_called_with_title(self):
+        with _orchestrator_ctx(enable_visualization=True) as (orch, _):
+            mock_viz = Mock()
+            mock_viz.visualize.return_value = "chart!"
+            orch.visualizer = mock_viz
+            orch.enable_visualization = True
+            result = orch.visualize_result([1, 2], title="Numbers")
+            mock_viz.visualize.assert_called_once_with([1, 2], title="Numbers")
+            assert result == "chart!"
+
+    def test_visualizer_exception_returns_str_data(self):
+        with _orchestrator_ctx(enable_visualization=True) as (orch, _):
+            mock_viz = Mock()
+            mock_viz.visualize.side_effect = RuntimeError("render error")
+            orch.visualizer = mock_viz
+            orch.enable_visualization = True
+            result = orch.visualize_result("my data")
+            assert result == "my data"
+
+
+# ---------------------------------------------------------------------------
+# run_health_check
+# ---------------------------------------------------------------------------
+
+class TestRunHealthCheck:
+
+    def test_disabled_returns_disabled_status(self):
+        with _orchestrator_ctx(enable_proactive_monitoring=False) as (orch, _):
+            result = orch.run_health_check()
+            assert result["status"] == "disabled"
+
+    def test_enabled_no_alerts(self):
+        with _orchestrator_ctx(enable_proactive_monitoring=True) as (orch, _):
+            mock_monitor = Mock()
+            mock_monitor.run_checks.return_value = []
+            mock_monitor.get_status.return_value = {"ok": True}
+            orch.proactive_monitor = mock_monitor
+            orch.enable_proactive_monitoring = True
+
+            result = orch.run_health_check()
+            assert result["status"] == "ok"
+            assert result["alerts"] == 0
+
+    def test_enabled_with_alerts(self):
+        with _orchestrator_ctx(enable_proactive_monitoring=True) as (orch, _):
+            alert = Mock()
+            alert.level = Mock(value="warning")
+            alert.message = "disk filling up"
+            alert.auto_remediated = False
+            alert.remediation_result = None
+
+            mock_monitor = Mock()
+            mock_monitor.run_checks.return_value = [alert]
+            mock_monitor.get_status.return_value = {}
+            orch.proactive_monitor = mock_monitor
+            orch.enable_proactive_monitoring = True
+
+            result = orch.run_health_check()
+            assert result["alerts"] == 1
+
+    def test_enabled_with_auto_remediated_alert(self):
+        with _orchestrator_ctx(enable_proactive_monitoring=True) as (orch, _):
+            alert = Mock()
+            alert.level = Mock(value="critical")
+            alert.message = "memory exhausted"
+            alert.auto_remediated = True
+            alert.remediation_result = "cleared cache"
+
+            mock_monitor = Mock()
+            mock_monitor.run_checks.return_value = [alert]
+            mock_monitor.get_status.return_value = {}
+            orch.proactive_monitor = mock_monitor
+            orch.enable_proactive_monitoring = True
+
+            result = orch.run_health_check()
+            assert result["auto_remediated"] == 1
+
+    def test_exception_returns_error_status(self):
+        with _orchestrator_ctx(enable_proactive_monitoring=True) as (orch, _):
+            mock_monitor = Mock()
+            mock_monitor.run_checks.side_effect = RuntimeError("monitor crashed")
+            orch.proactive_monitor = mock_monitor
+            orch.enable_proactive_monitoring = True
+
+            result = orch.run_health_check()
+            assert result["status"] == "error"
+            assert "monitor crashed" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# execute_with_multi_agent
+# ---------------------------------------------------------------------------
+
+class TestExecuteWithMultiAgent:
+
+    def test_disabled_returns_not_enabled_message(self):
+        with _orchestrator_ctx(enable_multi_agent=False) as (orch, _):
+            result = orch.execute_with_multi_agent("do something")
+            assert "not enabled" in result
+
+    def test_success_returns_final_result(self):
+        with _orchestrator_ctx(enable_multi_agent=True) as (orch, _):
+            session = Mock()
+            session.success = True
+            session.final_result = "task done"
+            session.session_id = "sess-1"
+            session.agents_involved = [Mock(value="planner")]
+            session.total_duration = 1.2
+            session.results = []
+
+            mock_multi = Mock()
+            mock_multi.collaborate.return_value = session
+            orch.multi_agent = mock_multi
+            orch.enable_multi_agent = True
+
+            result = orch.execute_with_multi_agent("build something")
+            assert result == "task done"
+
+    def test_failure_returns_error_message(self):
+        with _orchestrator_ctx(enable_multi_agent=True) as (orch, _):
+            session = Mock()
+            session.success = False
+            session.final_result = "agents disagreed"
+            session.session_id = "sess-2"
+            session.agents_involved = []
+            session.total_duration = 0.5
+            session.results = []
+
+            mock_multi = Mock()
+            mock_multi.collaborate.return_value = session
+            orch.multi_agent = mock_multi
+            orch.enable_multi_agent = True
+
+            result = orch.execute_with_multi_agent("build something")
+            assert "Error" in result
+
+    def test_exception_returns_error_string(self):
+        with _orchestrator_ctx(enable_multi_agent=True) as (orch, _):
+            mock_multi = Mock()
+            mock_multi.collaborate.side_effect = RuntimeError("network timeout")
+            orch.multi_agent = mock_multi
+            orch.enable_multi_agent = True
+
+            result = orch.execute_with_multi_agent("build something")
+            assert "network timeout" in result
+
+
+# ---------------------------------------------------------------------------
+# _build_context
+# ---------------------------------------------------------------------------
+
+class TestBuildContext:
+
+    def test_no_memory_no_env_empty_string(self):
+        with _orchestrator_ctx(use_memory=False) as (orch, mocks):
+            mocks["_ctx"].get_contextual_prompt.return_value = ""
+            result = orch._build_context("list files")
+            assert result == ""
+
+    def test_env_context_included(self):
+        with _orchestrator_ctx(use_memory=False) as (orch, mocks):
+            mocks["_ctx"].get_contextual_prompt.return_value = "cwd=/home/ana"
+            result = orch._build_context("what is here")
+            assert "cwd=/home/ana" in result
+
+    def test_with_memory_calls_session_summary(self):
+        with _orchestrator_ctx(use_memory=True) as (orch, mocks):
+            mocks["_ctx"].get_contextual_prompt.return_value = ""
+            orch.session_memory = Mock()
+            orch.session_memory.get_context_summary.return_value = "recent: scan /tmp"
+            orch.world_model = Mock()
+            orch.world_model.get_frequent_paths.return_value = []
+
+            result = orch._build_context("check logs")
+            assert "recent: scan /tmp" in result
+
+    def test_file_keyword_triggers_frequent_paths(self):
+        with _orchestrator_ctx(use_memory=True) as (orch, mocks):
+            mocks["_ctx"].get_contextual_prompt.return_value = ""
+            orch.session_memory = Mock()
+            orch.session_memory.get_context_summary.return_value = ""
+            orch.world_model = Mock()
+            orch.world_model.get_frequent_paths.return_value = ["/home/ana/projects"]
+
+            result = orch._build_context("list all files")
+            assert "/home/ana/projects" in result
+
+    def test_non_file_keyword_skips_frequent_paths(self):
+        with _orchestrator_ctx(use_memory=True) as (orch, mocks):
+            mocks["_ctx"].get_contextual_prompt.return_value = ""
+            orch.session_memory = Mock()
+            orch.session_memory.get_context_summary.return_value = ""
+            orch.world_model = Mock()
+
+            orch._build_context("run npm install")
+
+            orch.world_model.get_frequent_paths.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# execute_command — dry run
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandDryRun:
+
+    def test_dry_run_returns_dry_run_string(self):
+        intent = _make_intent(goal="scan /tmp")
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("list files", None, None)):
+                result = orch.execute_command("list files", dry_run=True)
+
+            assert "DRY RUN" in result
+            assert "scan /tmp" in result
+
+
+# ---------------------------------------------------------------------------
+# execute_command — intent translation error
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandIntentError:
+
+    def test_llm_exception_returns_error_string(self):
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.side_effect = RuntimeError("LLM down")
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("run tests", None, None)):
+                result = orch.execute_command("run tests")
+
+            assert "Error" in result or "error" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# execute_command — cache hit
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandCache:
+
+    def test_cache_hit_skips_llm(self):
+        intent = _make_intent(goal="cached goal", steps=[_make_step()])
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mocks["_cache"].get.return_value = intent
+
+            mock_llm = Mock()
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("do cached thing", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan", return_value=["done"]):
+                    orch.execute_command("do cached thing")
+
+            mock_llm.translate_intent.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# execute_command — successful execution
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandSuccess:
+
+    def test_success_returns_string(self):
+        intent = _make_intent(goal="scan tmp", steps=[_make_step()])
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("scan tmp", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan", return_value=["file1.txt"]):
+                    result = orch.execute_command("scan tmp")
+
+            assert isinstance(result, str)
+
+    def test_success_logs_intent(self):
+        intent = _make_intent(goal="test goal")
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("test goal", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan", return_value=["ok"]):
+                    orch.execute_command("test goal")
+
+            mocks["_logger"].log_intent.assert_called_once()
+
+    def test_action_tracker_transaction_completed(self):
+        intent = _make_intent(goal="track this", steps=[_make_step()])
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("track this", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan", return_value=["result"]):
+                    orch.execute_command("track this")
+
+            mocks["_tracker"].end_transaction.assert_called_once_with("txn-1", "completed")
+
+
+# ---------------------------------------------------------------------------
+# execute_command — execution failure
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandFailure:
+
+    def test_execution_exception_returns_error_message(self):
+        intent = _make_intent(goal="risky", steps=[_make_step()])
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("risky", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan",
+                           side_effect=RuntimeError("disk full")):
+                    result = orch.execute_command("risky")
+
+            assert "disk full" in result or "error" in result.lower()
+
+    def test_execution_failure_ends_transaction_as_failed(self):
+        intent = _make_intent(goal="fail", steps=[_make_step()])
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("fail", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan",
+                           side_effect=RuntimeError("crash")):
+                    orch.execute_command("fail")
+
+            mocks["_tracker"].end_transaction.assert_called_once_with("txn-1", "failed")
+
+
+# ---------------------------------------------------------------------------
+# execute_command — iterative detection
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandIterativeDetection:
+
+    def test_complex_task_delegates_to_execute_iterative(self):
+        with _orchestrator_ctx() as (orch, mocks):
+            mocks["_ta"].analyze.return_value = Mock(
+                needs_iteration=True,
+                confidence=0.9,
+                reasoning="complex multi-step task",
+                estimated_steps=5,
+            )
+            orch.execute_iterative = Mock(return_value="iterative result")
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("complex task", None, None)):
+                result = orch.execute_command("complex task")
+
+            orch.execute_iterative.assert_called_once()
+            assert result == "iterative result"
+
+    def test_force_oneshot_skips_iterative_detection(self):
+        intent = _make_intent(goal="force one shot")
+
+        with _orchestrator_ctx() as (orch, mocks):
+            mocks["_ta"].analyze.return_value = Mock(needs_iteration=True)
+            orch.execute_iterative = Mock(return_value="should not be called")
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("force one shot", None, None)):
+                with patch("zenus_core.orchestrator.execute_plan", return_value=["ok"]):
+                    result = orch.execute_command("force one shot", force_oneshot=True)
+
+            orch.execute_iterative.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# execute_command — adaptive planner path
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandAdaptive:
+
+    def test_adaptive_planner_used_when_enabled(self):
+        intent = _make_intent(goal="adaptive", steps=[_make_step()])
+
+        with _orchestrator_ctx(adaptive=True, use_sandbox=False) as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            mock_planner = Mock()
+            mock_planner.execute_with_retry.return_value = ["adapted result"]
+            orch.adaptive_planner = mock_planner
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("adaptive", None, None)):
+                result = orch.execute_command("adaptive")
+
+            mock_planner.execute_with_retry.assert_called_once()
