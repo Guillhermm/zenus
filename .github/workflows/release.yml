@@ -3,6 +3,8 @@ name: Release
 # Triggered by version tags: v0.6.0, v1.0.0, v1.2.3-beta.1, etc.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
@@ -160,7 +162,7 @@ jobs:
   # ─── GitHub Release: create release and attach artifacts ─────────────────
   github-release:
     name: GitHub Release
-    # Only requires test gate and snap build — PyPI publish is independent
+    # Only requires test gate and snap build - PyPI publish is independent
     # and can be re-run separately once credentials are configured.
     needs: [test, build-snap]
     runs-on: ubuntu-latest
