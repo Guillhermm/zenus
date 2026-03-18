@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Production-ready integration test suite**: 143 integration tests across 8 suites exercise the full stack end-to-end using real DeepSeek API calls (skipped automatically when `DEEPSEEK_API_KEY` is absent):
+  - `test_llm_deepseek.py` — DeepSeek adapter: `extract_json`, credential validation, `translate_intent`, `generate`, and `reflect_on_goal` with both mocked and live API scenarios.
+  - `test_provider_contract.py` — LLM factory and provider contract: factory routing priorities, `get_available_providers`, interface compliance, and a live DeepSeek round-trip.
+  - `test_pipeline_e2e.py` — Full orchestrator pipeline: wiring correctness (mocked LLM), intent cache isolation, dry-run mode, and real end-to-end execution (natural language → DeepSeek → IntentIR → tool → result).
+  - `test_safety_pipeline.py` — Safety and privilege gates: risk-level blocking, `PrivilegeTier` enforcement for `ShellOps`/`CodeExec`, and destructive-command guard via real LLM.
+  - `test_rollback_pipeline.py` — Rollback correctness: `ActionTracker` data model, `RollbackEngine` feasibility analysis, real filesystem rollback (create/copy/move), dry-run mode, and `rollback_last_n_actions`.
+  - `test_concurrency.py` — `ParallelExecutor`: correctness, thread safety, failure isolation, `ResourceLimiter` IO throttling, real parallel file/system ops, and `should_use_parallel` heuristic.
+  - `test_iterative_execution.py` — ReAct loop (`execute_iterative`): goal tracking, memory updates, dry-run, `GoalStatus` dataclass, and `GoalTracker` iteration safety limit.
+- **`requires_deepseek` pytest marker**: auto-skips live LLM tests when API key is absent; configured in `pytest.ini` and `conftest.py`.
+- **`deepseek_llm` and `isolated_tracker` fixtures**: added to `conftest.py` for reuse across integration suites.
 - **Comprehensive unit test suite**: expanded from ~25% to 88.6% coverage with 2,333 tests — adds dedicated suites for `task_complexity`, `error_recovery`, `parallel_executor`, `feedback/collector`, `proactive_monitor`, `tools/base`, `shell/explain`, `shell/commands`, `shell_executor`, `container_ops`, `output`, and `orchestrator` subsystems; extends `planner` and `rollback` tests.
 - **Test infrastructure**: `conftest.py` `restore_cwd` autouse fixture prevents working-directory leakage between tests; optional deps (playwright, pyautogui) stubbed in `sys.modules` so tests run without them installed.
 
