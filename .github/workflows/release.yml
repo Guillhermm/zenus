@@ -39,6 +39,7 @@ jobs:
     name: Publish to PyPI
     needs: test
     runs-on: ubuntu-latest
+    if: ${{ vars.PYPI_PUBLISH == 'true' }}
     steps:
       - uses: actions/checkout@v4
 

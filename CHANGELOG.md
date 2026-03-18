@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **CI: gate PyPI publish behind `PYPI_PUBLISH` variable**: mirrors the existing `SNAP_PUBLISH` guard, allowing independent control over each publish channel per release.
+
 ### Fixed
 - **CI: snap store publish glob not expanded**: `snapcore/action-publish@v1` ignores custom `snap:` input and always uses its hardcoded default; replaced the action with a direct `snapcraft upload` shell call where glob expansion works natively.
 - **CI: release workflow triggering on branch pushes**: `on.push.branches: [main]` was incorrectly added to `release.yml`, causing `GITHUB_REF` to resolve to `refs/heads/main` instead of a tag — `VERSION` would then contain `/` which broke `sed`'s `/` delimiter in all version-stamping steps; reverted to tag-only trigger.
