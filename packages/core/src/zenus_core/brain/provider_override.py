@@ -103,7 +103,7 @@ def parse_provider_override(text: str) -> Tuple[str, Optional[str], Optional[str
 
     # "use provider:"  or  "using provider,"  at start of input
     m = re.match(
-        r'^using?\s+(\w+)[:\s,]+(.+)',
+        r'^(?:use|using)\s+(\w+)[:\s,]+(.+)',
         clean,
         re.IGNORECASE | re.DOTALL,
     )

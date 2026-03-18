@@ -7,14 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Comprehensive unit test suite**: expanded from ~25% to 77% coverage with 1,869 tests across all core modules — memory layer, brain/LLM, tools, safety, execution, orchestrator, shell, visualization, monitoring, and workflows.
+- **Test infrastructure**: `conftest.py` `restore_cwd` autouse fixture prevents working-directory leakage between tests; optional deps (playwright, pyautogui) stubbed in `sys.modules` so tests run without them installed.
+
 ### Changed
 - **CI: gate PyPI publish behind `PYPI_PUBLISH` variable**: mirrors the existing `SNAP_PUBLISH` guard, allowing independent control over each publish channel per release.
 
 ### Fixed
-- **CI: snap store publish glob not expanded**: `snapcore/action-publish@v1` ignores custom `snap:` input and always uses its hardcoded default; replaced the action with a direct `snapcraft upload` shell call where glob expansion works natively.
-- **CI: release workflow triggering on branch pushes**: `on.push.branches: [main]` was incorrectly added to `release.yml`, causing `GITHUB_REF` to resolve to `refs/heads/main` instead of a tag — `VERSION` would then contain `/` which broke `sed`'s `/` delimiter in all version-stamping steps; reverted to tag-only trigger.
-- **CI: remove venv caching**: caching `.venv` across runs caused stale symlinks and broken interpreter paths; always creating the venv fresh is simpler and reliable.
-- **CI: snap build syntax error**: the `sed` pattern `version: .*` contains `: ` which YAML interprets as a key-value separator in an unquoted scalar; wrapped the `run:` value in a block scalar (`|`) to fix the parse error.
+- **`visualization/__init__.py` import paths**: `ChartType` and `TableStyle` were incorrectly imported from `visualizer.py`; corrected to import from `chart_generator` and `table_formatter` respectively.
+- **`provider_override.py` regex**: `using?` matched "usin/using" but not "use"; corrected to `(?:use|using)`.
+- **CI: snap store publish glob not expanded**: `snapcore/action-publish@v1` ignores custom `snap:` input; replaced with direct `snapcraft upload` shell call.
+- **CI: release workflow triggering on branch pushes**: reverted to tag-only trigger to prevent `VERSION` containing `/`.
+- **CI: remove venv caching**: always create venv fresh to avoid stale symlinks.
+- **CI: snap build syntax error**: wrapped `run:` value in block scalar to fix YAML parse error on `version: .*` pattern.
 
 ---
 
