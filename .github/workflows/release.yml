@@ -149,17 +149,12 @@ jobs:
           name: snap
           path: artifacts/
 
-      - name: Resolve snap path
-        id: snap-path
-        run: echo "snap=$(ls artifacts/*.snap)" >> $GITHUB_OUTPUT
-
       - name: Publish to Snap Store
-        uses: snapcore/action-publish@v1
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-        with:
-          snap: ${{ steps.snap-path.outputs.snap }}
-          release: stable
+        run: |
+          sudo snap install snapcraft --classic
+          snapcraft upload artifacts/*.snap --release stable
 
   # ─── GitHub Release: create release and attach artifacts ─────────────────
   github-release:
