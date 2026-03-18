@@ -1,0 +1,77 @@
+name: Integration
+
+# Runs on every merge to main and can be triggered manually.
+# Executes the full test suite including live DeepSeek API tests.
+# Cost: ~$0.05–0.10 per run (≈25 real LLM calls).
+#
+# To reduce cost later, change the push trigger to a schedule:
+#   schedule:
+#     - cron: '0 2 * * *'   # daily at 02:00 UTC
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual trigger'
+
+jobs:
+  integration:
+    name: Integration (live API)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install packages
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip --quiet
+          .venv/bin/pip install -e packages/visualization --quiet
+          .venv/bin/pip install -e packages/core --quiet
+          .venv/bin/pip install -e packages/cli --quiet
+          .venv/bin/pip install -e packages/tui --quiet
+          .venv/bin/pip install pytest pytest-cov pytest-asyncio python-dotenv --quiet
+
+      - name: Run full suite (unit + live integration)
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          .venv/bin/pytest tests/ \
+            --tb=short \
+            --cov=packages/core/src/zenus_core \
+            --cov=packages/cli/src/zenus_cli \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=json:coverage.json \
+            -q
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.json
+          retention-days: 30
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          python3 -c "
+          import json, sys
+          try:
+              data = json.load(open('coverage.json'))
+              pct = data['totals']['percent_covered']
+              print(f'Coverage: {pct:.1f}%')
+              if pct < 75:
+                  print(f'WARNING: coverage {pct:.1f}% is below 75%')
+                  sys.exit(1)
+          except Exception as e:
+              print(f'Could not read coverage: {e}')
+          "

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test infrastructure**: `conftest.py` `restore_cwd` autouse fixture prevents working-directory leakage between tests; optional deps (playwright, pyautogui) stubbed in `sys.modules` so tests run without them installed.
 
 ### Changed
+- **CI: three-tier test pipeline**:
+  - `ci.yml` (PRs and feature branches) — unit + mocked tests only; no API key required, live tests auto-skip. Fast matrix across Python 3.10–3.12.
+  - `integration.yml` (every merge to `main`, manual dispatch) — full suite including live DeepSeek API tests; uploads coverage artifact; fails if coverage drops below 75%. Switch trigger to `schedule` cron if cost becomes a concern.
+  - `release.yml` (tag pushes) — same full suite as integration, now mandatory live-test gate before any artifact is published; enforces 75% coverage threshold.
 - **CI: gate PyPI publish behind `PYPI_PUBLISH` variable**: mirrors the existing `SNAP_PUBLISH` guard, allowing independent control over each publish channel per release.
 
 ### Fixed

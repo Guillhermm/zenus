@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches:
-      - main
+      # main is covered by integration.yml (full suite + live API tests)
       - 'feature/**'
       - 'bugfix/**'
   pull_request:
