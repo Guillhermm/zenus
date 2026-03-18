@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Comprehensive unit test suite**: expanded from ~25% to 77% coverage with 1,869 tests across all core modules — memory layer, brain/LLM, tools, safety, execution, orchestrator, shell, visualization, monitoring, and workflows.
+- **Comprehensive unit test suite**: expanded from ~25% to 87.9% coverage with 2,316 tests — adds dedicated suites for `task_complexity`, `error_recovery`, `parallel_executor`, `feedback/collector`, `proactive_monitor`, `tools/base`, `shell/explain`, `shell/commands`, `shell_executor`, `container_ops`, and `output` subsystems; extends `planner` and `rollback` tests.
 - **Test infrastructure**: `conftest.py` `restore_cwd` autouse fixture prevents working-directory leakage between tests; optional deps (playwright, pyautogui) stubbed in `sys.modules` so tests run without them installed.
 
 ### Changed

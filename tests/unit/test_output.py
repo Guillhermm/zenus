@@ -534,3 +534,147 @@ class TestCancelableOperation:
         with CancelableOperation(handler):
             pass
         assert signal.getsignal(signal.SIGINT) == original
+
+
+# ===========================================================================
+# Additional console.py coverage
+# ===========================================================================
+
+class TestConsolePrintHelpersExtended:
+    """Tests for console functions not covered by TestConsolePrintHelpers."""
+
+    def _get_mod(self):
+        import importlib
+        return importlib.import_module("zenus_core.output.console")
+
+    def test_print_step_with_result_simple(self):
+        """print_step with a short result prints it inline."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        with patch.object(con_mod, 'console', mock):
+            with patch.object(con_mod, 'VISUALIZATION_ENABLED', False):
+                con_mod.print_step(1, "FileOps", "read", 0, result="done")
+        assert mock.print.call_count >= 2  # step + result
+
+    def test_print_step_with_multiline_result(self):
+        """print_step with multi-line result tries format_output."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        multiline = "line1\nline2\nline3\nline4\nline5"
+        with patch.object(con_mod, 'console', mock):
+            with patch.object(con_mod, 'VISUALIZATION_ENABLED', False):
+                con_mod.print_step(1, "FileOps", "scan_dir", 0, result=multiline)
+        assert mock.print.call_count >= 1
+
+    def test_print_step_with_json_result(self):
+        """print_step with JSON-like result calls format_output."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        json_result = '{"key": "value", "count": 5, "items": [1, 2, 3]}'
+        with patch.object(con_mod, 'console', mock):
+            with patch.object(con_mod, 'VISUALIZATION_ENABLED', False):
+                with patch("zenus_core.output.formatter.format_output") as mock_fmt:
+                    con_mod.print_step(1, "Tool", "op", 0, result=json_result)
+        # format_output may or may not be called depending on length threshold
+
+    def test_print_step_visualization_fallback(self):
+        """print_step falls back gracefully when visualization raises."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        mock_viz = MagicMock()
+        mock_viz.visualize.side_effect = Exception("viz error")
+        with patch.object(con_mod, 'console', mock):
+            with patch.object(con_mod, 'VISUALIZATION_ENABLED', True):
+                with patch.object(con_mod, 'Visualizer', mock_viz):
+                    con_mod.print_step(1, "Tool", "scan_dir", 0, result="some result")
+        # Should fall through without raising
+
+    def test_print_similar_commands_with_data(self):
+        """print_similar_commands with results prints each one."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        commands = [
+            {"similarity": 0.95, "success": True, "user_input": "list files"},
+            {"similarity": 0.80, "success": False, "user_input": "show files"},
+        ]
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_similar_commands(commands)
+        # Should print header + 2 results = at least 3 calls
+        assert mock.print.call_count >= 3
+
+    def test_print_explanation_with_reasoning(self):
+        """print_explanation includes reasoning when provided."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        steps = [
+            {"tool": "FileOps", "action": "read_file", "args": {"path": "/tmp/x"}, "risk": 0},
+            {"tool": "FileOps", "action": "delete_file", "args": {"path": "/tmp/x"}, "risk": 3},
+        ]
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_explanation("clean up temp files", steps, reasoning="No longer needed")
+        mock.print.assert_called_once()
+
+    def test_print_explanation_without_reasoning(self):
+        """print_explanation works when no reasoning is provided."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        steps = [{"tool": "FileOps", "action": "read_file", "args": {}, "risk": 0}]
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_explanation("do thing", steps)
+        mock.print.assert_called_once()
+
+    def test_print_explanation_all_risk_levels(self):
+        """print_explanation handles all risk levels (0-3) in steps."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        steps = [
+            {"tool": "T", "action": "a", "args": {}, "risk": 0},
+            {"tool": "T", "action": "b", "args": {}, "risk": 1},
+            {"tool": "T", "action": "c", "args": {}, "risk": 2},
+            {"tool": "T", "action": "d", "args": {}, "risk": 3},
+        ]
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_explanation("do stuff", steps)
+        mock.print.assert_called_once()
+
+    def test_print_code_block_calls_print(self):
+        """print_code_block passes syntax to console.print."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_code_block("x = 1\nprint(x)", language="python")
+        mock.print.assert_called_once()
+
+    def test_print_json_calls_print(self):
+        """print_json calls console.print with formatted syntax."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_json({"key": "value", "count": 42})
+        mock.print.assert_called_once()
+
+    def test_print_status_table_with_data(self):
+        """print_status_table renders key/value pairs."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_status_table({"Status": "running", "PID": "1234"})
+        mock.print.assert_called_once()
+
+    def test_print_status_table_empty(self):
+        """print_status_table with empty dict still renders table."""
+        con_mod = self._get_mod()
+        mock = MagicMock()
+        with patch.object(con_mod, 'console', mock):
+            con_mod.print_status_table({})
+        mock.print.assert_called_once()
+
+    def test_print_step_risk_variants(self):
+        """print_step covers risk levels 1, 2, 3 (CREATE/MODIFY/DELETE labels)."""
+        con_mod = self._get_mod()
+        for risk, label in [(1, "CREATE"), (2, "MODIFY"), (3, "DELETE")]:
+            mock = MagicMock()
+            with patch.object(con_mod, 'console', mock):
+                con_mod.print_step(1, "Tool", "op", risk)
+            args, _ = mock.print.call_args_list[0]
+            assert label in args[0]

@@ -127,18 +127,180 @@ class TestPlanner:
         mock_tool = Mock()
         mock_tool.scan = Mock(return_value="result")
         mock_logger = Mock()
-        
+
         from zenus_core.tools import registry
         registry.TOOLS["FileOps"] = mock_tool
-        
+
         step = Step(tool="FileOps", action="scan", args={}, risk=0)
         intent = IntentIR(goal="Test", requires_confirmation=False, steps=[step])
-        
+
         execute_plan(intent, logger=mock_logger)
-        
+
         # Verify logger was called
         mock_logger.log_step_result.assert_called_once()
         args = mock_logger.log_step_result.call_args[0]
         assert args[0] == "FileOps"
         assert args[1] == "scan"
         assert args[3] is True  # success
+
+    def test_parallel_false_skips_parallel_executor(self):
+        """parallel=False should use sequential execution"""
+        mock_tool = Mock()
+        mock_tool.scan = Mock(return_value="seq_result")
+
+        from zenus_core.tools import registry
+        registry.TOOLS["FileOps"] = mock_tool
+
+        steps = [
+            Step(tool="FileOps", action="scan", args={"path": "/a"}, risk=0),
+            Step(tool="FileOps", action="scan", args={"path": "/b"}, risk=0),
+        ]
+        intent = IntentIR(goal="scan", requires_confirmation=False, steps=steps)
+
+        results = execute_plan(intent, parallel=False)
+
+        assert mock_tool.scan.call_count == 2
+        assert len(results) == 2
+
+    def test_logs_missing_tool_error(self):
+        """Logger should receive failure when tool not found"""
+        from zenus_core.tools import registry
+        del registry.TOOLS["FileOps"]
+
+        mock_logger = Mock()
+        step = Step(tool="NonExistent", action="test", args={}, risk=0)
+        intent = IntentIR(goal="Test", requires_confirmation=False, steps=[step])
+
+        with pytest.raises(ValueError):
+            execute_plan(intent, logger=mock_logger, parallel=False)
+
+        mock_logger.log_step_result.assert_called_once()
+        args = mock_logger.log_step_result.call_args[0]
+        assert args[3] is False  # failure
+
+    def test_logs_missing_action_error(self):
+        """Logger should receive failure when action not found"""
+        class MockTool:
+            pass
+
+        from zenus_core.tools import registry
+        registry.TOOLS["FileOps"] = MockTool()
+
+        mock_logger = Mock()
+        step = Step(tool="FileOps", action="nonexistent", args={}, risk=0)
+        intent = IntentIR(goal="Test", requires_confirmation=False, steps=[step])
+
+        with pytest.raises(ValueError):
+            execute_plan(intent, logger=mock_logger, parallel=False)
+
+        mock_logger.log_step_result.assert_called_once()
+        args = mock_logger.log_step_result.call_args[0]
+        assert args[3] is False
+
+    def test_privilege_check_raises_for_restricted_tier(self):
+        """ShellOps should be blocked at STANDARD tier"""
+        from zenus_core.tools import registry
+        from zenus_core.tools.privilege import PrivilegeTier
+        from zenus_core.safety.policy import SafetyError
+
+        mock_shell = Mock()
+        mock_shell.run = Mock(return_value="ok")
+        registry.TOOLS["ShellOps"] = mock_shell
+
+        step = Step(tool="ShellOps", action="run", args={}, risk=1)
+        intent = IntentIR(goal="Run shell", requires_confirmation=False, steps=[step])
+
+        with pytest.raises(SafetyError):
+            execute_plan(intent, parallel=False, privilege_tier=PrivilegeTier.STANDARD)
+
+    def test_privilege_check_allows_privileged_tier(self, capsys):
+        """ShellOps should succeed at PRIVILEGED tier"""
+        from zenus_core.tools import registry
+        from zenus_core.tools.privilege import PrivilegeTier
+
+        mock_shell = Mock()
+        mock_shell.run = Mock(return_value="shell output")
+        registry.TOOLS["ShellOps"] = mock_shell
+
+        step = Step(tool="ShellOps", action="run", args={}, risk=1)
+        intent = IntentIR(goal="Run shell", requires_confirmation=False, steps=[step])
+
+        results = execute_plan(intent, parallel=False, privilege_tier=PrivilegeTier.PRIVILEGED)
+
+        mock_shell.run.assert_called_once()
+        assert len(results) == 1
+
+    def test_error_recovery_on_tool_exception(self):
+        """Tool exception should trigger error recovery"""
+        from unittest.mock import patch
+        from zenus_core.tools import registry
+
+        mock_tool = Mock()
+        mock_tool.scan = Mock(side_effect=RuntimeError("disk I/O error"))
+        registry.TOOLS["FileOps"] = mock_tool
+
+        step = Step(tool="FileOps", action="scan", args={}, risk=0)
+        intent = IntentIR(goal="scan", requires_confirmation=False, steps=[step])
+
+        mock_recovery = Mock()
+        mock_recovery.recover.return_value = Mock(
+            success=True,
+            message="Recovered successfully"
+        )
+
+        with patch(
+            "zenus_core.execution.error_recovery.get_error_recovery",
+            return_value=mock_recovery
+        ):
+            results = execute_plan(intent, parallel=False)
+
+        mock_recovery.recover.assert_called_once()
+        assert len(results) == 1
+        assert "Recovered" in results[0]
+
+    def test_error_recovery_failure_raises(self):
+        """Failed recovery should raise RuntimeError via error handler"""
+        from unittest.mock import patch, MagicMock
+        from zenus_core.tools import registry
+
+        mock_tool = Mock()
+        mock_tool.scan = Mock(side_effect=RuntimeError("disk failure"))
+        registry.TOOLS["FileOps"] = mock_tool
+
+        step = Step(tool="FileOps", action="scan", args={}, risk=0)
+        intent = IntentIR(goal="scan", requires_confirmation=False, steps=[step])
+
+        mock_recovery = Mock()
+        recovery_result = Mock()
+        recovery_result.success = False
+        recovery_result.message = "Could not recover"
+        mock_recovery.recover.return_value = recovery_result
+
+        mock_error_handler = MagicMock()
+        mock_enhanced = MagicMock()
+        mock_enhanced.user_friendly = "Human-friendly error"
+        mock_enhanced.format.return_value = "[red]error[/red]"
+        mock_error_handler.handle.return_value = mock_enhanced
+
+        with patch("zenus_core.execution.error_recovery.get_error_recovery", return_value=mock_recovery):
+            with patch("zenus_core.execution.error_handler.get_error_handler", return_value=mock_error_handler):
+                with pytest.raises(RuntimeError):
+                    execute_plan(intent, parallel=False)
+
+        mock_recovery.recover.assert_called_once()
+
+    def test_returns_list_of_string_results(self):
+        """execute_plan should return a list of string results"""
+        mock_tool = Mock()
+        mock_tool.scan = Mock(return_value=42)  # non-string return value
+
+        from zenus_core.tools import registry
+        registry.TOOLS["FileOps"] = mock_tool
+
+        step = Step(tool="FileOps", action="scan", args={}, risk=0)
+        intent = IntentIR(goal="Test", requires_confirmation=False, steps=[step])
+
+        results = execute_plan(intent, parallel=False)
+
+        assert isinstance(results, list)
+        assert all(isinstance(r, str) for r in results)
