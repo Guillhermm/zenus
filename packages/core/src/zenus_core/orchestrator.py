@@ -53,6 +53,9 @@ from zenus_core.output.console import (
     print_step, console
 )
 from zenus_core.tools.privilege import PrivilegeTier
+from zenus_core.brain.knowledge_graph import get_knowledge_graph
+from zenus_core.output.execution_summary import build_execution_summary
+from zenus_core.tools.web_search import WebSearchTool, SearchDecisionEngine, format_results_for_context
 
 
 class IntentTranslationError(Exception):
@@ -192,6 +195,10 @@ class Orchestrator:
             self.visualizer = None
             if enable_visualization and not VISUALIZATION_AVAILABLE:
                 self.logger.log_error("Visualization requested but matplotlib not installed. Install with: poetry add matplotlib numpy")
+
+        # Web search — transparent context enrichment (no API key required)
+        self.web_search = WebSearchTool()
+        self.search_engine = SearchDecisionEngine()
     
     def execute_command(
         self,
@@ -255,6 +262,21 @@ class Orchestrator:
             if self.use_memory:
                 context = self._build_context(user_input)
             
+            # Step 1.4: Web search — inject fresh data transparently when needed
+            if not force_oneshot:
+                should_search, reason = self.search_engine.should_search(user_input)
+                if should_search:
+                    search_results = self.web_search.search(user_input)
+                    search_context = format_results_for_context(search_results)
+                    if search_context:
+                        context = (
+                            f"{context}\n\n[Web Search Results - {reason}]\n{search_context}"
+                            if context
+                            else f"[Web Search Results - {reason}]\n{search_context}"
+                        )
+                        if self.show_progress:
+                            console.print(f"[dim cyan]↳ Web search: {reason}[/dim cyan]")
+
             # Step 1.5: Goal Inference - Understand high-level intent
             if self.enable_goal_inference:
                 goal_suggestion = self.goal_inference.infer_goal(user_input, context)
@@ -371,6 +393,17 @@ class Orchestrator:
                         self.logger.log_error(error_msg, {"user_input": user_input})
                         raise IntentTranslationError(error_msg) from e
             
+            # Step 2.4: Q&A short-circuit — no execution needed
+            if intent.is_question:
+                if self.show_progress:
+                    console.print()
+                context_for_answer = ""
+                if self.use_memory:
+                    context_for_answer = self._build_context(user_input)
+                answer = self.llm.ask(user_input, context_for_answer)
+                console.print(answer)
+                return answer
+
             # Step 2.5: Analyze for potential failures (learning from past mistakes)
             pre_analysis = self.failure_analyzer.analyze_before_execution(user_input, intent)
             
@@ -522,6 +555,14 @@ class Orchestrator:
                         transaction_id=transaction_id
                     )
                 
+                # Step 6.5: Update knowledge graph with observed relationships
+                try:
+                    kg = get_knowledge_graph()
+                    for step in intent.steps:
+                        kg.ingest_action(step.tool, step.action, step.args)
+                except Exception:
+                    pass  # Non-critical
+
                 # End transaction successfully
                 self.action_tracker.end_transaction(transaction_id, "completed")
             
@@ -560,7 +601,8 @@ class Orchestrator:
                     # Non-critical, just log
                     self.logger.log_error(f"Failed to add to semantic search: {e}")
             
-            print_success("Plan executed successfully")
+            _summary_text = build_execution_summary(intent, step_results)
+            print_success(_summary_text)
 
             # Build result string that includes actual tool output (used by TUI / workflow recorder)
             _step_output_parts = []

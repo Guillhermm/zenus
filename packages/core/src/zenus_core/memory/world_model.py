@@ -152,7 +152,7 @@ class WorldModel:
     
     def get_summary(self) -> str:
         """Get human-readable summary of world model"""
-        
+
         lines = [
             f"World Model (updated: {self.data['last_updated']})",
             f"Frequent paths: {len(self.data['frequent_paths'])}",
@@ -160,5 +160,17 @@ class WorldModel:
             f"Applications: {len(self.data['applications'])}",
             f"Patterns: {len(self.data['patterns'])}"
         ]
-        
+
+        # Include knowledge graph stats when available
+        try:
+            from zenus_core.brain.knowledge_graph import get_knowledge_graph
+            stats = get_knowledge_graph().get_stats()
+            if stats["total_nodes"] > 0:
+                lines.append(
+                    f"Knowledge graph: {stats['total_nodes']} entities, "
+                    f"{stats['total_edges']} relationships"
+                )
+        except Exception:
+            pass
+
         return "\n".join(lines)

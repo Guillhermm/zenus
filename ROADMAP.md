@@ -109,11 +109,11 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
   - Estimate confidence per step
   - Know when to ask for human input
 
-- [ ] **Knowledge Graph**
-  - Build ontology of system state
+- [x] **Knowledge Graph** ✅ (v1.1.0)
+  - Directed, typed entity-relationship graph built from ActionTracker events
   - Reason about relationships (file dependencies, service dependencies)
-  - Infer implicit requirements
-  - Detect contradictions
+  - BFS traversal: `what_depends_on`, `what_would_be_affected`, `related_to`
+  - Natural-language query dispatch, thread-safe, JSON persistence
 
 ---
 
@@ -121,11 +121,11 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
 
 ### 3.1 Voice Interface
 
-- [ ] **Speech-to-Text**
-  - Local STT (Whisper)
-  - Cloud STT with privacy mode
-  - Wake word detection ("Hey Zenus")
+- [ ] **Speech-to-Text** (planned: faster-whisper, local-first)
+  - Local STT via `faster-whisper` (GPU-accelerated, no API key)
+  - Wake word detection via `openwakeword` ("Hey Zenus")
   - Noise cancellation and multi-language support
+  - `voice/pipeline.py` — canonical entry point for voice sessions
 
 - [ ] **Text-to-Speech**
   - Local TTS (Piper, Coqui)
@@ -299,6 +299,35 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
   - Tenant isolation
   - Resource quotas per tenant
   - Billing integration
+
+---
+
+## Phase 5.5: New Concepts Under Exploration
+
+These ideas emerged during v1.x development and will be revisited when Phase 5 is underway. They are listed here to preserve the design intent, not as committed deliverables.
+
+### Intent Versioning & Replay
+
+- [ ] **Intent version history**: every `IntentIR` stored with a monotonic version ID
+- [ ] **Replay any past intent**: re-execute a previous plan against the current system state
+- [ ] **Diff two intents**: surface exactly what changed between two versions of the same goal
+- [ ] **Time-travel debugging**: replay a failed execution step by step in a sandbox
+- [ ] **Design note**: `IntentIR` is already serializable; the main work is a version store and a replay engine that can substitute observations from the past run with fresh ones
+
+### Sandboxed Intent Simulation
+
+- [ ] **Dry-run with state tracking**: simulate full execution in an isolated scratch space (tmpfs, namespace, or container) and report what would have changed
+- [ ] **Blast-radius report**: before any destructive op, show exactly which files/services would be affected and by how much
+- [ ] **Conflict detection**: detect if two pending intents would race on the same resource
+- [ ] **Design note**: builds on `SandboxedAdaptivePlanner` already in place; extends it to return a structured diff rather than a yes/no
+
+### Plugin & Extension System
+
+- [ ] **Tool plugin API**: third-party tools installable as Python packages (`zenus-tool-*`), auto-discovered and merged into the registry at startup
+- [ ] **Tool manifest**: each plugin declares its actions, risk levels, and privilege requirements in a `tool.yaml`
+- [ ] **Sandboxed plugin execution**: plugins run with constrained permissions (no network by default, filesystem limited to declared paths)
+- [ ] **Plugin marketplace**: curated index of community tools; `zenus plugin install <name>`
+- [ ] **Design note**: the current registry is a flat dict — the main work is a discovery layer, a validation step (manifest + safety policy), and a reload mechanism compatible with hot-reload config
 
 ---
 
@@ -580,4 +609,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-03-19*
+*Last updated: 2026-03-19 (v1.1.0 — Knowledge Graph, Q&A mode, dynamic execution summary, autonomous web search)*

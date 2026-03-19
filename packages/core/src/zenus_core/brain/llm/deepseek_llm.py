@@ -184,6 +184,22 @@ class DeepSeekLLM:
             
             return response.choices[0].message.content
 
+    def ask(self, question: str, context: str = "") -> str:
+        """Answer a direct question without JSON schema enforcement."""
+        system = "You are a knowledgeable assistant. Answer concisely and accurately."
+        if context:
+            system += f"\n\nContext about the user's environment:\n{context}"
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": question},
+            ],
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+
     def generate(self, prompt: str) -> str:
         """Generate a free-form text response for a given prompt."""
         response = self.client.chat.completions.create(

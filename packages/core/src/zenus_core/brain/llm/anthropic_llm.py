@@ -214,6 +214,19 @@ class AnthropicLLM:
             
             return response.content[0].text
 
+    def ask(self, question: str, context: str = "") -> str:
+        """Answer a direct question without JSON schema enforcement."""
+        system = "You are a knowledgeable assistant. Answer concisely and accurately."
+        if context:
+            system += f"\n\nContext about the user's environment:\n{context}"
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system=system,
+            messages=[{"role": "user", "content": question}],
+        )
+        return response.content[0].text
+
     def generate(self, prompt: str) -> str:
         """Generate a free-form text response for a given prompt."""
         response = self.client.messages.create(

@@ -40,6 +40,21 @@ class LLM(ABC):
         pass
 
     @abstractmethod
+    def ask(self, question: str, context: str = "") -> str:
+        """
+        Answer a direct question without JSON schema enforcement.
+        Used when IntentIR.is_question is True.
+
+        Args:
+            question: The user's question in natural language.
+            context:  Optional system context (memory summary, cwd, etc.).
+
+        Returns:
+            A concise, direct answer in plain text.
+        """
+        pass
+
+    @abstractmethod
     def generate(self, prompt: str) -> str:
         """
         Generate a free-form text response for a given prompt.
@@ -76,3 +91,7 @@ class LLM(ABC):
     async def agenerate(self, prompt: str) -> str:
         """Async version of generate."""
         return await asyncio.to_thread(self.generate, prompt)
+
+    async def aask(self, question: str, context: str = "") -> str:
+        """Async version of ask."""
+        return await asyncio.to_thread(self.ask, question, context)

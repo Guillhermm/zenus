@@ -183,6 +183,26 @@ class OllamaLLM:
         except Exception as e:
             raise RuntimeError(f"Ollama reflection failed: {e}")
 
+    def ask(self, question: str, context: str = "") -> str:
+        """Answer a direct question without JSON schema enforcement."""
+        prompt = question
+        if context:
+            prompt = f"Context:\n{context}\n\nQuestion: {question}"
+        response = requests.post(
+            f"{self.base_url}/api/generate",
+            json={
+                "model": self.model,
+                "system": "You are a knowledgeable assistant. Answer concisely and accurately.",
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.3, "num_predict": 1024, "num_ctx": 8192},
+            },
+            timeout=60,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"Ollama ask error: {response.status_code}")
+        return response.json().get("response", "")
+
     def generate(self, prompt: str) -> str:
         """Generate a free-form text response for a given prompt."""
         response = requests.post(

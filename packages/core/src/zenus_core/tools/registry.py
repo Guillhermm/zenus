@@ -19,6 +19,7 @@ except Exception:
     _VISION_OPS_AVAILABLE = False
 from zenus_core.tools.shell_ops import ShellOps
 from zenus_core.tools.code_exec import CodeExec
+from zenus_core.tools.web_search import WebSearchTool
 
 TOOLS = {
     # Core tools
@@ -39,6 +40,9 @@ TOOLS = {
     # Privileged tools (require PrivilegeTier.PRIVILEGED)
     "ShellOps":     ShellOps(),
     "CodeExec":     CodeExec(),
+
+    # Network/research tools
+    "WebSearch":    WebSearchTool(),
 }
 
 

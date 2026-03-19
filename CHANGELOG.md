@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Knowledge Graph** (`brain/knowledge_graph.py`): directed, typed entity-relationship graph built automatically from `ActionTracker` events. Stores `Entity` (FILE, DIR, PROCESS, SERVICE, PACKAGE, ENV_VAR, COMMAND) and `Edge` (DEPENDS_ON, READS, WRITES, RUNS, CONFIGURES, IMPORTS, PRODUCES, CONTAINS, RELATED_TO) with BFS traversal helpers (`what_depends_on`, `what_would_be_affected`, `related_to`) and natural-language query dispatch. Thread-safe via `RLock`; persisted atomically to JSON. Module-level singleton via `get_knowledge_graph()`. Orchestrator ingests every executed step into the graph automatically. 54 tests in `tests/unit/test_knowledge_graph.py`.
+- **Q&A mode** (`brain/llm/schemas.py`, `orchestrator.py`): `IntentIR` gains an additive `is_question: bool = False` field. When the LLM sets `is_question=True` the orchestrator short-circuits directly to `llm.ask()`, bypassing all execution machinery. No tool execution, no confirmation prompt. All LLM backends gain an `ask(question, context)` method.
+- **Dynamic execution summary** (`output/execution_summary.py`): `ExecutionSummaryBuilder` replaces the static "plan executed successfully" message with a concise, human-readable summary derived from step results (e.g. "Installed vim; Started nginx."). Falls back through: LLM-provided `action_summary` → verb-map derivation → `intent.goal`. No extra LLM call. 48 tests in `tests/unit/test_execution_summary.py`.
+- **Autonomous web search** (`tools/web_search.py`): `WebSearchTool` fetches results from DuckDuckGo (Instant Answer API primary, HTML scraping fallback — no API key required). `SearchDecisionEngine` auto-decides when to search based on three signals: temporal regex patterns (scores, prices, weather, etc.), knowledge-gap months since training cutoff, and factual-question heuristic. Results are injected transparently into the LLM context before intent translation; users never need to ask Zenus to search. Registered in `tools/registry.py`. 64 tests in `tests/unit/test_web_search.py`.
+- **`ask()` abstract method** (`brain/llm/base.py`): all LLM backends (Anthropic, OpenAI, DeepSeek, Ollama) now implement `ask(question, context="") -> str` for direct Q&A without JSON schema enforcement.
+- **`IntentIR.action_summary`** field: additive optional field the LLM can populate with a past-tense summary of what was done, used as first-priority input for `ExecutionSummaryBuilder`.
+
+### Changed
+- **`tools/registry.py`**: added `WebSearch` entry pointing to `WebSearchTool()`.
+- **`orchestrator.py`**: Step 1.4 — web search injection before intent translation; Step 2.4 — Q&A short-circuit; Step 6.5 — knowledge graph ingestion after execution; final output uses `build_execution_summary` instead of static success message. `SearchDecisionEngine` and `WebSearchTool` instantiated in `__init__`.
+- **`memory/world_model.py`**: `get_summary()` now appends Knowledge Graph node/edge stats when the graph is non-empty.
+
 ---
 
 ## [1.0.0] - 2026-03-19

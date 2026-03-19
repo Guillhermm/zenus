@@ -14,14 +14,17 @@ You MUST output a JSON object that EXACTLY matches this schema:
 {
   "goal": string,
   "requires_confirmation": true | false,
-  "steps": [
-    {
-      "tool": string,
-      "action": string,
-      "args": object,
-      "risk": 0 | 1 | 2 | 3
-    }
-  ]
+  "steps": [...],
+  "is_question": true | false,
+  "action_summary": string | null
+}
+
+Each step:
+{
+  "tool": string,
+  "action": string,
+  "args": object,
+  "risk": 0 | 1 | 2 | 3
 }
 
 Risk levels:
@@ -29,6 +32,18 @@ Risk levels:
 1 = create/move (safe modifications)
 2 = overwrite (data changes)
 3 = delete/kill (destructive, requires explicit confirmation)
+
+QUESTION vs ACTION:
+- If the user is asking a question (no system operation required), set "is_question": true and "steps": []
+- Examples of questions: "what is Docker?", "how do I use git rebase?", "explain cron syntax"
+- For questions, set "goal" to a concise restatement of the question
+- For questions, "action_summary" should be null
+
+ACTION SUMMARY:
+- For action intents (is_question: false), set "action_summary" to a concise 1-sentence description
+  of what will be done, written in past tense as if already completed.
+- Examples: "Moved 12 PDF files to ~/Documents/PDFs", "Installed nginx and started the service"
+- Keep it under 80 characters
 
 Rules:
 - Output ONLY valid JSON — no markdown, no explanations, no extra keys
