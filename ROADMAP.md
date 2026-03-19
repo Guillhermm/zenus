@@ -121,11 +121,11 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
 
 ### 3.1 Voice Interface
 
-- [ ] **Speech-to-Text** (planned: faster-whisper, local-first)
-  - Local STT via `faster-whisper` (GPU-accelerated, no API key)
-  - Wake word detection via `openwakeword` ("Hey Zenus")
-  - Noise cancellation and multi-language support
-  - `voice/pipeline.py` — canonical entry point for voice sessions
+- [x] **Speech-to-Text** ✅ (v0.2.0 — faster-whisper, no PyTorch, int8)
+  - Local STT via `faster-whisper` (CTranslate2 backend, 4× faster than openai-whisper)
+  - Wake word detection via `openwakeword` — no API key, no cloud
+  - Text-matching fallback (`TextFallbackDetector`) when openwakeword not installed
+  - `voice/pipeline.py` — canonical `VoicePipeline` with wake→STT→Zenus→TTS loop
 
 - [ ] **Text-to-Speech**
   - Local TTS (Piper, Coqui)
