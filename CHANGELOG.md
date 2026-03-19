@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.0.0] - 2026-03-19
+
 ### Added
 - **Property-based testing** (`tests/unit/test_property_based.py`): 27 invariant tests using Hypothesis covering `IntentIR`/`Step` schema boundaries, `SafetyPolicy` risk-threshold guarantees, config schema field constraints, and secrets masking — every `risk=3` step always raises `SafetyError` regardless of input.
 - **Hot-reload config** (`config/loader.py`): `ConfigLoader` now supports `on_reload(callback)` / `remove_reload_callback()` and a module-level `register_reload_callback()`. Callbacks are fired outside the `threading.RLock` to prevent deadlocks; the watchdog observer runs as a daemon thread. Full test suite in `tests/unit/test_config_hot_reload.py` (15 tests).

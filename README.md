@@ -23,7 +23,7 @@ Zenus is designed with a clear long-term trajectory: **become an operating syste
 
 Today, Zenus runs on top of Linux as an intent-execution layer. Over time, the architecture is intended to evolve into a full OS where the interface, scheduling, and system management are all mediated through intent rather than traditional commands. Every design decision — from the Intent IR contract to the sandboxed execution model — is made with that future in mind.
 
-The current release is approaching **v1.0.0**, the foundation of that journey. It is a production-ready system that runs on any Linux machine today.
+The current release is **v1.0.0**, the foundation of that journey. It is a production-ready system that runs on any Linux machine today.
 
 ---
 
@@ -146,7 +146,7 @@ snap install --classic zenus
 Or download from [GitHub Releases](https://github.com/Guillhermm/zenus/releases) and install locally:
 
 ```bash
-snap install --classic --dangerous zenus_0.6.0_amd64.snap
+snap install --classic --dangerous zenus_1.0.0_amd64.snap
 ```
 
 ### pip
