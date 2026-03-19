@@ -10,13 +10,10 @@ Verifies:
 """
 
 import os
-import sys
 import pytest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from conftest import deepseek_env as _deepseek_env  # noqa: E402
+from .helpers import deepseek_env as _deepseek_env
 
 from zenus_core.brain.llm.factory import get_llm, get_available_providers
 from zenus_core.brain.llm.deepseek_llm import DeepSeekLLM

@@ -8,13 +8,10 @@ Tests run without a real LLM — the IntentIR is constructed directly so we
 control which risk levels and tools reach the safety checks.
 """
 
-import sys
 import pytest
-from pathlib import Path
 from unittest.mock import patch, Mock
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from conftest import deepseek_env as _deepseek_env  # noqa: E402
+from .helpers import deepseek_env as _deepseek_env
 
 from zenus_core.brain.llm.schemas import IntentIR, Step
 from zenus_core.brain.planner import execute_plan
