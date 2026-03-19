@@ -85,31 +85,27 @@ class DeepSeekLLM:
             base_url=base_url
         )
         
-        # Get model from config.yaml (read directly to avoid import issues)
+        # Get model and token limit from the standard config loader.
+        # Using get_config() (not raw YAML) keeps this consistent with the
+        # rest of the stack and makes the value patchable in tests.
         config_model = None
         config_max_tokens = None
-        
+
         try:
-            from pathlib import Path
-            import yaml
-
-            config_paths = [
-                Path.cwd() / "config.yaml",
-                Path.home() / ".zenus" / "config.yaml",
-            ]
-
-            for config_path in config_paths:
-                if config_path.exists():
-                    with open(config_path, 'r') as f:
-                        config_data = yaml.safe_load(f)
-                        if config_data and 'llm' in config_data:
-                            config_model = config_data['llm'].get('model')
-                            config_max_tokens = config_data['llm'].get('max_tokens')
-                            break
+            from zenus_core.config.loader import get_config
+            cfg = get_config()
+            config_model = cfg.llm.model
+            config_max_tokens = cfg.llm.max_tokens
         except Exception:
-            pass  # Silently fall back to env vars / defaults
+            pass  # Fall through to env-var / hard-coded defaults
 
-        self.model = config_model or os.getenv("LLM_MODEL", "deepseek-chat")
+        # Validate: if config supplies a non-DeepSeek model name fall back to the
+        # canonical default so we never send an Anthropic/OpenAI name to DeepSeek.
+        _DEEPSEEK_MODELS = {"deepseek-chat", "deepseek-reasoner", "deepseek-coder"}
+        if config_model and config_model not in _DEEPSEEK_MODELS:
+            config_model = None  # Ignore — wrong provider's model leaked in
+
+        self.model = config_model or os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.max_tokens = config_max_tokens or int(os.getenv("LLM_TOKENS", "8192"))
 
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:

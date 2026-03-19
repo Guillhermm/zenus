@@ -10,8 +10,13 @@ Verifies:
 """
 
 import os
+import sys
 import pytest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from conftest import deepseek_env as _deepseek_env  # noqa: E402
 
 from zenus_core.brain.llm.factory import get_llm, get_available_providers
 from zenus_core.brain.llm.deepseek_llm import DeepSeekLLM
@@ -111,7 +116,12 @@ class TestDeepSeekInterfaceCompliance:
 
     @pytest.fixture
     def llm(self):
-        with patch("openai.OpenAI") as mock_openai:
+        mock_config = MagicMock()
+        mock_config.llm.provider = "deepseek"
+        mock_config.llm.model = "deepseek-chat"
+        mock_config.llm.max_tokens = 8192
+        with patch("openai.OpenAI") as mock_openai, \
+             patch("zenus_core.config.loader.get_config", return_value=mock_config):
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
             with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-test"}):
@@ -181,9 +191,9 @@ class TestDeepSeekLiveRoundTrip:
 
     def test_factory_creates_deepseek_that_can_translate(self):
         """Factory → DeepSeekLLM → translate_intent round-trip."""
-        with patch.dict(os.environ, {"ZENUS_LLM": "deepseek"}):
+        with _deepseek_env():
             llm = get_llm(force_provider="deepseek")
-        assert isinstance(llm, DeepSeekLLM)
-        intent = llm.translate_intent("show disk usage of /tmp")
+            assert isinstance(llm, DeepSeekLLM)
+            intent = llm.translate_intent("show disk usage of /tmp")
         assert isinstance(intent, IntentIR)
         assert len(intent.goal) > 0

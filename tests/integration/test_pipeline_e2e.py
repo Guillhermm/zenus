@@ -9,11 +9,15 @@ Non-LLM orchestrator paths are also tested with mocked LLM to catch wiring bugs.
 """
 
 import os
+import sys
 import time
 import pytest
 from pathlib import Path
-from contextlib import contextmanager
 from unittest.mock import patch, Mock, MagicMock
+
+# Shared DeepSeek context manager lives in conftest.py (importable as a plain function)
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from conftest import deepseek_env as _deepseek_env  # noqa: E402
 
 from zenus_core.brain.llm.schemas import IntentIR, Step
 from zenus_core.orchestrator import Orchestrator
@@ -43,26 +47,6 @@ def _make_orch(**kwargs):
     )
     defaults.update(kwargs)
     return Orchestrator(**defaults)
-
-
-@contextmanager
-def _deepseek_env():
-    """Ensure the factory AND router both select DeepSeek for this block.
-
-    The router uses get_config().llm.provider to populate available_providers.
-    Both must be patched so the safety-check in route() doesn't fall back to
-    the config's primary provider (anthropic).
-    """
-    mock_config = MagicMock()
-    mock_config.llm.provider = "deepseek"
-    mock_config.llm.model = "deepseek-chat"
-    mock_config.fallback.enabled = False
-    mock_config.fallback.providers = []
-
-    with patch("zenus_core.brain.llm.factory.get_config", return_value=mock_config), \
-         patch("zenus_core.config.loader.get_config", return_value=mock_config), \
-         patch.dict(os.environ, {"ZENUS_LLM": "deepseek"}):
-        yield
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +269,9 @@ class TestFullPipelineWithRealLLM:
     def test_real_llm_produces_valid_intentir(self):
         """The LLM must return a well-formed IntentIR for a simple command."""
         from zenus_core.brain.llm.factory import get_llm
-        llm = get_llm(force_provider="deepseek")
-        intent = llm.translate_intent("check disk usage of /tmp")
+        with _deepseek_env():
+            llm = get_llm(force_provider="deepseek")
+            intent = llm.translate_intent("check disk usage of /tmp")
 
         assert isinstance(intent, IntentIR)
         assert intent.goal
