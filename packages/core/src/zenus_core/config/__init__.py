@@ -11,7 +11,7 @@ Modern configuration with:
 
 from zenus_core.config.schema import ZenusConfig, LLMConfig, Profile
 from zenus_core.config.loader import ConfigLoader, get_config, reload_config, register_reload_callback
-from zenus_core.config.secrets import SecretsManager, get_secrets
+from zenus_core.config.secrets import SecretsManager, VaultClient, get_secrets
 
 __all__ = [
     "ZenusConfig",
@@ -22,5 +22,6 @@ __all__ = [
     "reload_config",
     "register_reload_callback",
     "SecretsManager",
+    "VaultClient",
     "get_secrets",
 ]
