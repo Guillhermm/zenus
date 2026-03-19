@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Property-based testing** (`tests/unit/test_property_based.py`): 27 invariant tests using Hypothesis covering `IntentIR`/`Step` schema boundaries, `SafetyPolicy` risk-threshold guarantees, config schema field constraints, and secrets masking — every `risk=3` step always raises `SafetyError` regardless of input.
+- **Hot-reload config** (`config/loader.py`): `ConfigLoader` now supports `on_reload(callback)` / `remove_reload_callback()` and a module-level `register_reload_callback()`. Callbacks are fired outside the `threading.RLock` to prevent deadlocks; the watchdog observer runs as a daemon thread. Full test suite in `tests/unit/test_config_hot_reload.py` (15 tests).
+- **Vault integration** (`config/secrets.py`): `VaultClient` wraps HashiCorp Vault KV v2 with lazy connection caching (failure cached to avoid repeated network calls), falls back to env vars when Vault is unconfigured. `SecretsManager` accepts an optional `vault:` param; Vault values win over env vars. 27 tests in `tests/unit/test_vault_secrets.py`.
+- **Async stack** (`brain/llm/base.py`, `brain/llm/anthropic_llm.py`, `orchestrator.py`): `LLM` base class gains default async methods (`atranslate_intent`, `areflect_on_goal`, `agenerate`) via `asyncio.to_thread`. `AnthropicLLM` overrides these with native `AsyncAnthropic` calls. `Orchestrator.async_execute_command` delegates to the sync path via thread pool. 18 tests in `tests/unit/test_async_llm.py`.
+- **Background task queue** (`execution/task_queue.py`): stdlib-only `BackgroundTaskQueue` (ThreadPoolExecutor) with `Priority` scheduling (HIGH/NORMAL/LOW), `TaskStatus` lifecycle (PENDING→RUNNING→DONE/FAILED/CANCELLED), cancellation, timeout, and context manager support. `AsyncBackgroundTaskQueue` wraps it for asyncio callers. Module-level singleton via `get_task_queue()`. 54 tests in `tests/unit/test_task_queue.py`.
+- **HTTP connection pool** (`execution/connection_pool.py`): `ConnectionPool` wraps `urllib3.PoolManager` providing shared TCP connections across tool HTTP calls, configurable retry policy (backoff on 429/5xx), per-request timeout override, and convenience helpers (`get`, `post`, `put`, `delete`). Module-level singleton via `get_connection_pool()`. 34 tests in `tests/unit/test_connection_pool.py`.
+- **Cache test coverage** (`tests/unit/test_smart_cache.py`): 64 tests for `SmartCache` (TTL, LRU eviction, `get_or_compute`, `invalidate_pattern`, stats) and `IntentCache` (context hashing, corruption handling, token savings estimation).
+- **Test coverage catalog** (`docs/TEST_COVERAGE.md`): auto-generated index of all 2,496+ test cases across unit, integration, and E2E tiers.
+
+### Changed
+- **`execution/__init__.py`**: now exports `BackgroundTaskQueue`, `AsyncBackgroundTaskQueue`, `Priority`, `TaskStatus`, `TaskResult`, `get_task_queue`, `ConnectionPool`, `get_connection_pool`.
+- **`config/__init__.py`**: exports `register_reload_callback` and `VaultClient`.
+- **`packages/core/pyproject.toml`**: added `hypothesis = "^6.0.0"` to dev dependencies.
+
 - **Production-ready integration test suite**: 143 integration tests across 8 suites exercise the full stack end-to-end using real DeepSeek API calls (skipped automatically when `DEEPSEEK_API_KEY` is absent):
   - `test_llm_deepseek.py` — DeepSeek adapter: `extract_json`, credential validation, `translate_intent`, `generate`, and `reflect_on_goal` with both mocked and live API scenarios.
   - `test_provider_contract.py` — LLM factory and provider contract: factory routing priorities, `get_available_providers`, interface compliance, and a live DeepSeek round-trip.

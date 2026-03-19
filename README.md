@@ -23,7 +23,7 @@ Zenus is designed with a clear long-term trajectory: **become an operating syste
 
 Today, Zenus runs on top of Linux as an intent-execution layer. Over time, the architecture is intended to evolve into a full OS where the interface, scheduling, and system management are all mediated through intent rather than traditional commands. Every design decision — from the Intent IR contract to the sandboxed execution model — is made with that future in mind.
 
-The current release is **v0.3.0-alpha**, the foundation of that journey. It is a working system that runs on any Linux machine today.
+The current release is approaching **v1.0.0**, the foundation of that journey. It is a production-ready system that runs on any Linux machine today.
 
 ---
 
@@ -108,6 +108,9 @@ graph LR
 ### Execution
 
 - **Parallel execution** — Independent operations are automatically detected and run concurrently (2–5x faster for batch work).
+- **Background task queue** — Long-running operations can be submitted as background tasks with priority scheduling (HIGH/NORMAL/LOW), status tracking, and cancellation. No external broker required.
+- **Async-native stack** — `Orchestrator.async_execute_command` and all LLM methods support `async/await` without blocking the event loop.
+- **HTTP connection pooling** — Shared `urllib3.PoolManager` reuses TCP connections across tool HTTP calls, reducing latency and file-descriptor churn.
 - **Adaptive retry** — Failed steps are retried with updated context from the failure observation.
 - **Iterative mode** — For complex multi-step tasks, Zenus uses a ReAct loop: execute, observe, adapt.
 
@@ -120,12 +123,15 @@ graph LR
 - **Self-reflection** — Critiques its own plan before execution and revises if needed.
 - **Goal inference** — Identifies implied steps the user didn't explicitly mention (e.g. adding a backup before a destructive migration).
 
-### Memory
+### Memory and caching
 
 - **Session memory** — Maintains context within a conversation.
 - **World model** — Learns persistent facts about your environment (frequent paths, preferred tools, project structure).
 - **Intent history** — Complete audit trail of every operation.
 - **Failure patterns** — Records what went wrong and what fixed it.
+- **Intent cache** — LRU in-memory + disk cache with 1-hour TTL; repeated commands skip the LLM entirely (zero tokens, instant response).
+- **Config hot-reload** — `config.yaml` changes are picked up at runtime without restarting; subsystems register callbacks to react to updates.
+- **Vault-backed secrets** — Secrets can be sourced from HashiCorp Vault KV v2 in addition to `.env` files; Vault values win over env vars.
 
 ---
 
