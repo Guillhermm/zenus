@@ -2,6 +2,8 @@ from dotenv import load_dotenv, find_dotenv # type: ignore
 import json
 import os
 from pathlib import Path
+from typing import List
+from anthropic import Anthropic, AsyncAnthropic
 from zenus_core.brain.llm.schemas import IntentIR
 from zenus_core.brain.llm.system_prompt import build_system_prompt
 
@@ -61,8 +63,6 @@ def extract_json(text: str) -> dict:
 class AnthropicLLM:
     def __init__(self):
         """Initialize Anthropic client lazily - only when this backend is selected"""
-        from anthropic import Anthropic
-        
         api_key = os.getenv("ANTHROPIC_API_KEY")
         
         if not api_key:
@@ -79,6 +79,7 @@ class AnthropicLLM:
             api_key = api_key[1:-1]
         
         self.client = Anthropic(api_key=api_key)
+        self.async_client = AsyncAnthropic(api_key=api_key)
         
         # Get model from config.yaml (read directly to avoid import issues)
         config_model = None
@@ -262,3 +263,46 @@ class AnthropicLLM:
         
         except Exception as e:
             return f"Vision analysis failed: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Native async methods using AsyncAnthropic
+    # ------------------------------------------------------------------
+
+    async def atranslate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
+        """Native async translate_intent using AsyncAnthropic."""
+        response = await self.async_client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=build_system_prompt(),
+            messages=[{"role": "user", "content": user_input}],
+        )
+        content = response.content[0].text
+        try:
+            data = extract_json(content)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Claude returned invalid JSON:\n{content}") from e
+        return IntentIR.model_validate(data)
+
+    async def areflect_on_goal(
+        self,
+        reflection_prompt: str,
+        user_goal: str,
+        observations: List[str],
+    ) -> str:
+        """Native async reflect_on_goal using AsyncAnthropic."""
+        response = await self.async_client.messages.create(
+            model=self.model,
+            max_tokens=1024,
+            system="You are a goal achievement evaluator. Analyze observations and determine if a user's goal has been achieved.",
+            messages=[{"role": "user", "content": reflection_prompt}],
+        )
+        return response.content[0].text
+
+    async def agenerate(self, prompt: str) -> str:
+        """Native async generate using AsyncAnthropic."""
+        response = await self.async_client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text

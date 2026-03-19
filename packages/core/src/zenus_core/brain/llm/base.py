@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from typing import List
 from zenus_core.brain.llm.schemas import IntentIR
@@ -8,22 +9,22 @@ class LLM(ABC):
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         """
         Translate user input to Intent IR
-        
+
         Args:
             user_input: Natural language command
             stream: Enable streaming output (if supported)
-        
+
         Returns:
             IntentIR object
         """
         pass
-    
+
     @abstractmethod
     def reflect_on_goal(
         self,
         reflection_prompt: str,
         user_goal: str,
-        observations: List[str]
+        observations: List[str],
     ) -> str:
         """
         Reflect on whether a goal has been achieved
@@ -51,3 +52,27 @@ class LLM(ABC):
             Model response as plain text
         """
         pass
+
+    # ------------------------------------------------------------------
+    # Async API — default implementations delegate to sync via thread pool.
+    # Subclasses may override with native async implementations.
+    # ------------------------------------------------------------------
+
+    async def atranslate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
+        """Async version of translate_intent."""
+        return await asyncio.to_thread(self.translate_intent, user_input, stream)
+
+    async def areflect_on_goal(
+        self,
+        reflection_prompt: str,
+        user_goal: str,
+        observations: List[str],
+    ) -> str:
+        """Async version of reflect_on_goal."""
+        return await asyncio.to_thread(
+            self.reflect_on_goal, reflection_prompt, user_goal, observations
+        )
+
+    async def agenerate(self, prompt: str) -> str:
+        """Async version of generate."""
+        return await asyncio.to_thread(self.generate, prompt)

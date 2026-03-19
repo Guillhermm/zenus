@@ -3,11 +3,12 @@ Command Orchestrator
 
 High-level orchestration of:
 - Intent translation
-- Memory management  
+- Memory management
 - Plan execution
 - Audit logging
 """
 
+import asyncio
 from typing import Optional, Dict
 from zenus_core.brain.llm.factory import get_llm
 from zenus_core.brain.planner import execute_plan
@@ -1113,6 +1114,38 @@ class Orchestrator:
         
         return "\n".join(output)
     
+    async def async_execute_command(
+        self,
+        user_input: str,
+        dry_run: bool = False,
+        force_oneshot: bool = False,
+        force_provider: Optional[str] = None,
+    ) -> str:
+        """
+        Async version of execute_command.
+
+        Uses the LLM's native async API when available (AnthropicLLM),
+        otherwise delegates to asyncio.to_thread to avoid blocking the
+        event loop.
+
+        Args:
+            user_input: Natural language command
+            dry_run: If True, show plan without executing
+            force_oneshot: Skip iterative detection
+            force_provider: Override LLM provider for this call
+
+        Returns:
+            Human-readable result
+        """
+        return await asyncio.to_thread(
+            self.execute_command,
+            user_input,
+            dry_run,
+            False,  # explain
+            force_oneshot,
+            force_provider,
+        )
+
     def interactive_shell(self):
         """Run interactive REPL mode"""
         # Elevate to privileged tier — the user is present and can review actions
