@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "zenus-voice"
-version = "0.1.0"
-description = "Voice interface for Zenus - hands-free control with STT and TTS"
+version = "0.2.0"
+description = "Voice interface for Zenus - hands-free control with local STT and TTS"
 authors = ["Zeni <zeni@zenus.ai>"]
 readme = "README.md"
 packages = [{include = "zenus_voice", from = "src"}]
@@ -9,19 +9,19 @@ packages = [{include = "zenus_voice", from = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 zenus-core = {path = "../core", develop = true}
-openai-whisper = "^20231117"  # Local STT
-piper-tts = {version = "^1.2.0", optional = true}  # Local TTS
-pyttsx3 = "^2.90"  # Fallback TTS
-pyaudio = "^0.2.14"  # Audio I/O
+faster-whisper = "^1.0.0"   # Local STT — 4× faster than openai-whisper, no PyTorch
+openwakeword = {version = "^0.6.0", optional = true}  # Wake word detection (no API key)
+piper-tts = {version = "^1.2.0", optional = true}     # High-quality neural TTS
+pyttsx3 = "^2.90"           # Fallback TTS — always available (uses system voices)
+pyaudio = "^0.2.14"         # Audio I/O
 numpy = "^1.24.0"
 soundfile = "^0.12.1"
-webrtcvad = "^2.0.10"  # Voice activity detection
-pvporcupine = {version = "^3.0.0", optional = true}  # Wake word detection
+webrtcvad = "^2.0.10"       # Voice activity detection
 
 [tool.poetry.extras]
-piper = ["piper-tts"]
-wake = ["pvporcupine"]
-full = ["piper-tts", "pvporcupine"]
+wake   = ["openwakeword"]
+piper  = ["piper-tts"]
+full   = ["openwakeword", "piper-tts"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
