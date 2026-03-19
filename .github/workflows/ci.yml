@@ -34,7 +34,7 @@ jobs:
           .venv/bin/pip install -e packages/core --quiet
           .venv/bin/pip install -e packages/cli --quiet
           .venv/bin/pip install -e packages/tui --quiet
-          .venv/bin/pip install pytest pytest-cov pytest-asyncio --quiet
+          .venv/bin/pip install pytest pytest-cov pytest-asyncio hypothesis --quiet
 
       - name: Run tests
         run: .venv/bin/pytest tests/ -v --tb=short

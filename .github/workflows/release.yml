@@ -29,7 +29,7 @@ jobs:
           .venv/bin/pip install -e packages/core --quiet
           .venv/bin/pip install -e packages/cli --quiet
           .venv/bin/pip install -e packages/tui --quiet
-          .venv/bin/pip install pytest pytest-cov pytest-asyncio python-dotenv --quiet
+          .venv/bin/pip install pytest pytest-cov pytest-asyncio python-dotenv hypothesis --quiet
 
       - name: Run full suite (unit + live integration)
         env:
