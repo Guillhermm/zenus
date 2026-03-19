@@ -44,6 +44,9 @@ class _SyncLLM(LLM):
     def generate(self, prompt: str) -> str:
         return f"response to: {prompt}"
 
+    def ask(self, question: str, context: str = "") -> str:
+        return f"answer to: {question}"
+
 
 # ---------------------------------------------------------------------------
 # LLM base class async fallback

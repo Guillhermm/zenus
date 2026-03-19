@@ -242,10 +242,26 @@ class Orchestrator:
                 label = describe_override(force_provider, _detected_model)
                 console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
 
+            # Step 0a: Web search — must run before complexity routing so that
+            # lookup/info queries are handled in oneshot Q&A instead of the
+            # iterative loop (which would spin with no useful observations).
+            _pre_search_context = ""
+            if not force_oneshot:
+                _should_search, _search_reason = self.search_engine.should_search(user_input)
+                if _should_search:
+                    _search_results = self.web_search.search(user_input)
+                    _pre_search_context = format_results_for_context(_search_results)
+                    if _pre_search_context:
+                        if self.show_progress:
+                            console.print(f"[dim cyan]↳ Web search: {_search_reason}[/dim cyan]")
+                        # Search found results → this is a lookup, not a multi-step task.
+                        # Force oneshot so the LLM can answer directly from context.
+                        force_oneshot = True
+
             # Step 0: Analyze task complexity (auto-detect iterative need)
             if not force_oneshot:
                 task_complexity = self.task_analyzer.analyze(user_input)
-                
+
                 if task_complexity.needs_iteration:
                     # Automatically use iterative mode for complex tasks
                     console.print(f"[dim]Detected complex task (confidence: {task_complexity.confidence:.0%})[/dim]")
@@ -261,21 +277,15 @@ class Orchestrator:
             context = ""
             if self.use_memory:
                 context = self._build_context(user_input)
-            
-            # Step 1.4: Web search — inject fresh data transparently when needed
-            if not force_oneshot:
-                should_search, reason = self.search_engine.should_search(user_input)
-                if should_search:
-                    search_results = self.web_search.search(user_input)
-                    search_context = format_results_for_context(search_results)
-                    if search_context:
-                        context = (
-                            f"{context}\n\n[Web Search Results - {reason}]\n{search_context}"
-                            if context
-                            else f"[Web Search Results - {reason}]\n{search_context}"
-                        )
-                        if self.show_progress:
-                            console.print(f"[dim cyan]↳ Web search: {reason}[/dim cyan]")
+
+            # Step 1.4: Inject pre-fetched web search results (done in Step 0a to
+            # inform routing; reuse here rather than searching a second time).
+            if _pre_search_context:
+                context = (
+                    f"{context}\n\n[Web Search Results - {_search_reason}]\n{_pre_search_context}"
+                    if context
+                    else f"[Web Search Results - {_search_reason}]\n{_pre_search_context}"
+                )
 
             # Step 1.5: Goal Inference - Understand high-level intent
             if self.enable_goal_inference:
@@ -791,6 +801,30 @@ class Orchestrator:
         if self.use_memory:
             context = self._build_context(user_input)
 
+        # Web search injection — same gate as execute_command Step 0a.
+        # Ensures each iterative session starts with fresh data when the query
+        # is time-sensitive (sports schedules, versions, news, etc.).
+        should_search, search_reason = self.search_engine.should_search(user_input)
+        if should_search:
+            search_results = self.web_search.search(user_input)
+            search_context = format_results_for_context(search_results)
+            if search_context:
+                context = (
+                    f"{context}\n\n[Web Search Results - {search_reason}]\n{search_context}"
+                    if context
+                    else f"[Web Search Results - {search_reason}]\n{search_context}"
+                )
+                console.print(f"[dim cyan]↳ Web search: {search_reason}[/dim cyan]")
+            else:
+                # Search attempted but returned nothing — tell LLM so it
+                # doesn't waste iterations trying tool-based web fetches.
+                _no_results = (
+                    "[Web Search attempted but returned no current results. "
+                    "Answer from training knowledge and acknowledge the limitation.]"
+                )
+                context = f"{context}\n\n{_no_results}" if context else _no_results
+                console.print("[dim yellow]↳ Web search returned no results[/dim yellow]")
+
         # Route to appropriate model (iterative = likely complex)
         selected_model, complexity = self.router.route(user_input, iterative=True, force_model=force_provider)
 
@@ -840,14 +874,22 @@ class Orchestrator:
                     
                     # Log intent
                     self.logger.log_intent(user_input, intent)
-                    
+
                     # Show goal for this iteration
                     console.print(f"[yellow]→ Goal:[/yellow] {intent.goal}")
-                    
+
+                    # Q&A short-circuit — if the LLM treated this as a question
+                    # (e.g. because search results were injected into context),
+                    # answer directly and exit the loop immediately.
+                    if intent.is_question:
+                        answer = self.llm.ask(enhanced_input)
+                        console.print(f"\n[green]{answer}[/green]")
+                        return answer
+
                     if dry_run:
                         console.print(self._format_dry_run(intent))
                         continue
-                    
+
                     # Step 2: Execute plan
                     step_results = []
                     iteration_observations = []

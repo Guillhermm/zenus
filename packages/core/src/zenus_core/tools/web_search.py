@@ -289,18 +289,25 @@ class WebSearchTool(Tool):
             return []
 
         results: List[SearchResult] = []
-        # Extract result blocks via simple regex (avoids bs4 dependency)
-        result_blocks = re.findall(
-            r'class="result__snippet"[^>]*>(.*?)</a>',
-            body, re.DOTALL
+
+        # DDG's HTML lite structure has changed over time.  Try several known
+        # patterns in order of preference so the scraper stays resilient.
+        def _find_blocks(pattern: str) -> List[str]:
+            return re.findall(pattern, body, re.DOTALL | re.IGNORECASE)
+
+        # Snippet candidates — closing tag varies (<a> or <span>)
+        result_blocks = (
+            _find_blocks(r'class="result__snippet"[^>]*>(.*?)</a>')
+            or _find_blocks(r'class="result__snippet"[^>]*>(.*?)</span>')
+            or _find_blocks(r'class="[^"]*snippet[^"]*"[^>]*>(.*?)</(?:a|span|div)>')
         )
-        title_blocks = re.findall(
-            r'class="result__a"[^>]*>(.*?)</a>',
-            body, re.DOTALL
+        title_blocks = (
+            _find_blocks(r'class="result__a"[^>]*>(.*?)</a>')
+            or _find_blocks(r'class="[^"]*result[^"]*a[^"]*"[^>]*>(.*?)</a>')
         )
-        url_blocks = re.findall(
-            r'class="result__url"[^>]*>(.*?)</span>',
-            body, re.DOTALL
+        url_blocks = (
+            _find_blocks(r'class="result__url"[^>]*>(.*?)</span>')
+            or _find_blocks(r'class="result__url"[^>]*>(.*?)</a>')
         )
 
         for i in range(min(max_results, len(result_blocks))):
