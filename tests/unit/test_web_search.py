@@ -116,9 +116,21 @@ class TestSearchDecisionEngineCurrentStatus:
         assert should is True, f"Expected search for: {query!r}"
 
     @pytest.mark.parametrize("query", [
-        "who are the best music composers of all time",
+        # Attribution queries now intentionally trigger search to avoid hallucination
         "who invented the telephone",
         "who wrote Hamlet",
+        "who created PostVRP benchmarks",
+        "who made the first iPhone",
+        "who developed TensorFlow",
+        "who authored the attention is all you need paper",
+    ])
+    def test_attribution_queries_trigger_search(self, engine, query):
+        """Attribution queries trigger search — LLMs may hallucinate authorship."""
+        should, _ = engine.should_search(query)
+        assert should is True, f"Expected search for attribution query: {query!r}"
+
+    @pytest.mark.parametrize("query", [
+        "who are the best music composers of all time",
         "who was the first president of the US",
         "who discovered gravity",
         "what is photosynthesis",
@@ -736,18 +748,22 @@ class TestFallbackSearch:
         mock_hn.assert_not_called()
         mock_gh.assert_not_called()
 
-    def test_academic_query_uses_arxiv_wikipedia_hn(self):
-        # Academic category: arxiv, wikipedia, hackernews — NOT github, reddit
+    def test_academic_query_uses_semantic_scholar_arxiv_openalex_wikipedia(self):
+        # Academic category: semantic_scholar, arxiv, openalex, wikipedia — NOT hn, github, reddit
         tool = WebSearchTool()
-        with patch.object(tool, "_arxiv_search", return_value=[]) as mock_arxiv, \
+        with patch.object(tool, "_semantic_scholar_search", return_value=[]) as mock_ss, \
+             patch.object(tool, "_arxiv_search", return_value=[]) as mock_arxiv, \
+             patch.object(tool, "_openalex_search", return_value=[]) as mock_oa, \
              patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
              patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
              patch.object(tool, "_github_search", return_value=[]) as mock_gh, \
              patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit:
             tool._fallback_search("deep learning benchmark research paper", 5)
+        mock_ss.assert_called_once()
         mock_arxiv.assert_called_once()
+        mock_oa.assert_called_once()
         mock_wiki.assert_called_once()
-        mock_hn.assert_called_once()
+        mock_hn.assert_not_called()
         mock_gh.assert_not_called()
         mock_reddit.assert_not_called()
 
@@ -792,6 +808,26 @@ class TestTemporalPatterns:
         "who owns the company",
         "current champion of the league",
         "who won the match",
+        # Entertainment / movies
+        "what are current movies in theater",
+        "what movies are playing now",
+        "now playing at the cinema",
+        "in theaters this weekend",
+        "new movies this week",
+        "box office results",
+        "what is showing at the theater",
+        "current series on Netflix",
+        "upcoming movie releases",
+        "what movies are in the cinemas",
+        # Attribution (to avoid hallucination on obscure items)
+        "who made PostVRP benchmarks",
+        "who created TensorFlow",
+        "who developed the BERT model",
+        "who wrote the attention is all you need paper",
+        "who invented the telephone",
+        "who authored this dataset",
+        "who designed the transformer architecture",
+        "who built this framework",
     ])
     def test_pattern_matches(self, text):
         assert _TEMPORAL_RE.search(text) is not None, f"Expected match for: {text!r}"
@@ -800,12 +836,13 @@ class TestTemporalPatterns:
         # Timeless questions — must NOT trigger search
         "who are the best composers of all time",
         "what is photosynthesis",
-        "who invented the telephone",
         "how does a computer work",
         "what is the capital of France",
         "create a directory",
         "can you check my system resources",
         "install Python on my machine",
+        "who was the first president of the US",
+        "who discovered gravity",
     ])
     def test_timeless_does_not_match(self, text):
         assert _TEMPORAL_RE.search(text) is None, f"Expected NO match for: {text!r}"
@@ -878,3 +915,206 @@ class TestDefusedXMLImport:
         )
         with pytest.raises(Exception):
             defusedxml.ElementTree.fromstring(bomb)
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _semantic_scholar_search
+# ---------------------------------------------------------------------------
+
+class TestSemanticScholarSearch:
+    @pytest.fixture
+    def tool(self):
+        return WebSearchTool()
+
+    def _mock_response(self, data: dict) -> MagicMock:
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = data
+        return mock
+
+    def test_returns_papers(self, tool):
+        data = {"data": [
+            {
+                "paperId": "abc123",
+                "title": "Attention Is All You Need",
+                "abstract": "We propose the Transformer.",
+                "year": 2017,
+                "venue": "NeurIPS",
+                "authors": [{"name": "Vaswani"}, {"name": "Shazeer"}],
+                "externalIds": {"DOI": "10.5555/123"},
+            }
+        ]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._semantic_scholar_search("transformer attention", 5)
+        assert len(results) == 1
+        assert results[0].source == "semantic_scholar"
+        assert results[0].title == "Attention Is All You Need"
+        assert "Vaswani" in results[0].snippet
+        assert "2017" in results[0].snippet
+        assert results[0].url.startswith("https://doi.org/")
+
+    def test_url_fallback_to_semantic_scholar(self, tool):
+        data = {"data": [{
+            "paperId": "xyz",
+            "title": "No DOI Paper",
+            "abstract": "",
+            "year": 2020,
+            "venue": "",
+            "authors": [],
+            "externalIds": {},
+        }]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._semantic_scholar_search("test", 5)
+        assert "semanticscholar.org" in results[0].url
+
+    def test_et_al_for_many_authors(self, tool):
+        data = {"data": [{
+            "paperId": "p1",
+            "title": "Multi-author Paper",
+            "abstract": "Abstract.",
+            "year": 2021,
+            "venue": "ICML",
+            "authors": [{"name": f"Author{i}"} for i in range(6)],
+            "externalIds": {},
+        }]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._semantic_scholar_search("test", 5)
+        assert "et al." in results[0].snippet
+
+    def test_api_failure_returns_empty(self, tool):
+        with patch.object(tool._session, "get", side_effect=Exception("timeout")):
+            assert tool._semantic_scholar_search("test", 5) == []
+
+    def test_max_results_respected(self, tool):
+        data = {"data": [
+            {"paperId": f"p{i}", "title": f"Paper {i}", "abstract": "",
+             "year": 2020, "venue": "", "authors": [], "externalIds": {}}
+            for i in range(10)
+        ]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._semantic_scholar_search("test", 3)
+        assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _openalex_search
+# ---------------------------------------------------------------------------
+
+class TestOpenAlexSearch:
+    @pytest.fixture
+    def tool(self):
+        return WebSearchTool()
+
+    def _mock_response(self, data: dict) -> MagicMock:
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = data
+        return mock
+
+    def test_returns_works(self, tool):
+        data = {"results": [
+            {
+                "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+                "publication_year": 2018,
+                "doi": "https://doi.org/10.18653/bert",
+                "abstract_inverted_index": {"BERT": [0], "is": [1], "powerful": [2]},
+                "authorships": [
+                    {"author": {"display_name": "Devlin"}},
+                    {"author": {"display_name": "Chang"}},
+                ],
+                "primary_location": {"source": {"display_name": "NAACL"}},
+            }
+        ]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._openalex_search("BERT transformer", 5)
+        assert len(results) == 1
+        assert results[0].source == "openalex"
+        assert "BERT" in results[0].title
+        assert "Devlin" in results[0].snippet
+        assert "2018" in results[0].snippet
+
+    def test_abstract_reconstructed_from_inverted_index(self, tool):
+        inv = {"The": [0], "quick": [1], "brown": [2], "fox": [3]}
+        data = {"results": [{
+            "title": "Test Paper",
+            "publication_year": 2022,
+            "doi": "",
+            "abstract_inverted_index": inv,
+            "authorships": [],
+            "primary_location": None,
+        }]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._openalex_search("test", 5)
+        assert "The quick brown fox" in results[0].snippet
+
+    def test_empty_inverted_index(self, tool):
+        data = {"results": [{
+            "title": "No Abstract",
+            "publication_year": 2020,
+            "doi": "",
+            "abstract_inverted_index": {},
+            "authorships": [],
+            "primary_location": None,
+        }]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._openalex_search("test", 5)
+        assert len(results) == 1
+        assert results[0].title == "No Abstract"
+
+    def test_api_failure_returns_empty(self, tool):
+        with patch.object(tool._session, "get", side_effect=Exception("timeout")):
+            assert tool._openalex_search("test", 5) == []
+
+    def test_max_results_respected(self, tool):
+        data = {"results": [
+            {"title": f"Work {i}", "publication_year": 2020, "doi": "",
+             "abstract_inverted_index": {}, "authorships": [], "primary_location": None}
+            for i in range(10)
+        ]}
+        with patch.object(tool._session, "get", return_value=self._mock_response(data)):
+            results = tool._openalex_search("test", 4)
+        assert len(results) == 4
+
+
+# ---------------------------------------------------------------------------
+# Entertainment / movies temporal patterns
+# ---------------------------------------------------------------------------
+
+class TestEntertainmentPatterns:
+    """Movies and entertainment queries must trigger search."""
+
+    @pytest.fixture
+    def engine(self):
+        return SearchDecisionEngine()
+
+    @pytest.mark.parametrize("query", [
+        "what are current movies in theater",
+        "what movies are in theaters this weekend",
+        "now playing at the cinema",
+        "what's playing at the theater",
+        "box office results this week",
+        "what's showing at the cinema",
+        "new movies this month",
+        "upcoming movie releases",
+        "what movies are playing right now",
+        "current series on streaming",
+    ])
+    def test_entertainment_queries_trigger_search(self, engine, query):
+        should, reason = engine.should_search(query)
+        assert should is True, f"Expected search for: {query!r}"
+
+
+# ---------------------------------------------------------------------------
+# Academic query classification includes new patterns
+# ---------------------------------------------------------------------------
+
+class TestAcademicPatternExpansion:
+    @pytest.mark.parametrize("query", [
+        "find papers with doi 10.1234/test",
+        "peer reviewed research on transformers",
+        "conference proceedings on NLP",
+        "citation count for this paper",
+        "preprint on semantic scholar",
+    ])
+    def test_academic_re_matches_new_terms(self, query):
+        assert _ACADEMIC_QUERY_RE.search(query) is not None, f"Expected academic match: {query!r}"

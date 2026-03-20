@@ -298,11 +298,11 @@ Config values take precedence over env vars. Both can be used simultaneously (co
 
 **Fallback sources by query type:**
 
-| Category | Sources |
+| Category | Sources (priority order) |
 |---|---|
 | sports | Wikipedia, Reddit, RSS (BBC) |
-| tech | HackerNews, GitHub, Wikipedia, RSS (TechCrunch/Verge) |
-| academic | arXiv, Wikipedia, HackerNews |
+| tech | HackerNews, GitHub, Wikipedia, RSS (TechCrunch/Verge/Ars Technica) |
+| academic | Semantic Scholar, arXiv, OpenAlex, Wikipedia |
 | news | RSS feeds, Reddit, HackerNews, DDG Instant Answer |
 | general | Wikipedia, DDG Instant Answer, RSS feeds |
 

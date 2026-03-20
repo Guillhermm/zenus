@@ -18,7 +18,8 @@ results are injected into the LLM context before intent translation.
 Search backends:
   Primary:  Brave Search API (full web index, configure BRAVE_SEARCH_API_KEY)
   Fallback: Parallel multi-source — Wikipedia, Hacker News, GitHub, arXiv,
-            Reddit, curated RSS feeds, DuckDuckGo Instant Answer.
+            Semantic Scholar, OpenAlex, Reddit, curated RSS feeds,
+            DuckDuckGo Instant Answer.
             No API key required for fallback mode.
 """
 
@@ -131,6 +132,19 @@ _TEMPORAL_PATTERNS = [
     r"\bcurrent\s+(?:ceo|cto|cfo|president|prime\s+minister|owner|champion|leader|"
     r"coach|manager|version|release|status)\b",
     r"\bwho\s+won\b", r"\bwho\s+is\s+(?:the\s+)?(?:lead|number\s+one|top|ranked)\b",
+    # Entertainment: movies/shows in theaters or streaming
+    r"\bnow\s+playing\b",
+    r"\bin\s+the(?:aters?|atres?|cinemas?)\b",
+    r"\bcurrent(?:ly)?\s+(?:in\s+(?:the)?(?:aters?|atres?|cinemas?)|playing|showing|screening)\b",
+    r"\bcurrent\s+(?:movies?|films?|shows?|series|season|episodes?)\b",
+    r"\bwhat(?:'s|\s+is)\s+(?:on\s+(?:at\s+the\s+cinema|tv)|playing|showing)\b",
+    r"\bbox\s*office\b",
+    r"\bstreaming\s+(?:now|this\s+(?:week|month))\b",
+    r"\bnew\s+(?:movies?|films?|shows?|series|episodes?)\b",
+    r"\bupcoming\s+(?:movies?|films?|shows?|releases?)\b",
+    r"\bwhat\s+movies?\s+(?:are|is)\b",
+    # Attribution queries — LLMs may hallucinate authorship of obscure works
+    r"\bwho\s+(?:made|created|developed|wrote|authored|invented|designed|built)\b",
 ]
 
 _TEMPORAL_RE = re.compile("|".join(_TEMPORAL_PATTERNS), re.IGNORECASE)
@@ -234,7 +248,9 @@ _ACADEMIC_QUERY_RE = re.compile(
     r"\b(research|paper|study|journal|published?|arxiv|"
     r"algorithm|theorem|proof|benchmark|dataset|survey|"
     r"machine\s+learning|deep\s+learning|neural\s+network|"
-    r"reinforcement\s+learning|natural\s+language|computer\s+vision)\b",
+    r"reinforcement\s+learning|natural\s+language|computer\s+vision|"
+    r"citation|peer.?review|preprint|conference|proceedings|"
+    r"semantic\s+scholar|pubmed|doi\b)\b",
     re.IGNORECASE,
 )
 
@@ -249,9 +265,10 @@ _NEWS_QUERY_RE = re.compile(
 class WebSearchTool(Tool):
     """
     Web search with Brave Search API (primary) and a parallel multi-source
-    fallback (Wikipedia, Hacker News, GitHub, arXiv, Reddit, RSS feeds,
-    DuckDuckGo Instant Answer). No API key required for fallback mode;
-    configure BRAVE_SEARCH_API_KEY for full web search coverage.
+    fallback (Wikipedia, Hacker News, GitHub, arXiv, Semantic Scholar,
+    OpenAlex, Reddit, RSS feeds, DuckDuckGo Instant Answer).
+    No API key required for fallback mode; configure BRAVE_SEARCH_API_KEY
+    for full web search coverage.
 
     Fallback sources are selected based on query type (sports, tech,
     academic, news, general) to avoid irrelevant results.
@@ -262,13 +279,15 @@ class WebSearchTool(Tool):
     _UA = "Zenus/1.0 (intent-driven OS assistant; https://github.com/Guillhermm/zenus)"
 
     # API endpoints
-    _BRAVE_API    = "https://api.search.brave.com/res/v1/web/search"
-    _HN_API       = "http://hn.algolia.com/api/v1/search"
-    _GITHUB_API   = "https://api.github.com/search/repositories"
-    _ARXIV_API    = "http://export.arxiv.org/api/query"
-    _REDDIT_API   = "https://www.reddit.com/search.json"
-    _WIKI_API     = "https://en.wikipedia.org/w/api.php"
-    _DDG_API      = "https://api.duckduckgo.com/"
+    _BRAVE_API          = "https://api.search.brave.com/res/v1/web/search"
+    _HN_API             = "http://hn.algolia.com/api/v1/search"
+    _GITHUB_API         = "https://api.github.com/search/repositories"
+    _ARXIV_API          = "http://export.arxiv.org/api/query"
+    _REDDIT_API         = "https://www.reddit.com/search.json"
+    _WIKI_API           = "https://en.wikipedia.org/w/api.php"
+    _DDG_API            = "https://api.duckduckgo.com/"
+    _SEMANTIC_API       = "https://api.semanticscholar.org/graph/v1/paper/search"
+    _OPENALEX_API       = "https://api.openalex.org/works"
 
     # Curated RSS/Atom feeds: (url, friendly_name)
     _RSS_FEEDS = [
@@ -388,7 +407,7 @@ class WebSearchTool(Tool):
         Source map by category:
           sports   → Wikipedia, Reddit, RSS
           tech     → HackerNews, GitHub, Wikipedia, RSS
-          academic → arXiv, Wikipedia, HackerNews
+          academic → Semantic Scholar, arXiv, OpenAlex, Wikipedia
           news     → RSS, Reddit, HackerNews, DDG
           general  → Wikipedia, DDG, RSS
         """
@@ -397,20 +416,21 @@ class WebSearchTool(Tool):
         # (priority_idx, name, callable, per_source_limit)
         _SOURCES_BY_CATEGORY: Dict[str, list] = {
             "sports":   [
-                (0, "wikipedia",  self._wikipedia_search,  2),
-                (1, "reddit",     self._reddit_search,     3),
-                (2, "rss",        self._rss_search,        2),
+                (0, "wikipedia",        self._wikipedia_search,        2),
+                (1, "reddit",           self._reddit_search,           3),
+                (2, "rss",              self._rss_search,              2),
             ],
             "tech":     [
-                (0, "hackernews", self._hackernews_search, 3),
-                (1, "github",     self._github_search,     2),
-                (2, "wikipedia",  self._wikipedia_search,  2),
-                (3, "rss",        self._rss_search,        2),
+                (0, "hackernews",       self._hackernews_search,       3),
+                (1, "github",           self._github_search,           2),
+                (2, "wikipedia",        self._wikipedia_search,        2),
+                (3, "rss",              self._rss_search,              2),
             ],
             "academic": [
-                (0, "arxiv",      self._arxiv_search,      3),
-                (1, "wikipedia",  self._wikipedia_search,  2),
-                (2, "hackernews", self._hackernews_search, 2),
+                (0, "semantic_scholar", self._semantic_scholar_search, 3),
+                (1, "arxiv",            self._arxiv_search,            3),
+                (2, "openalex",         self._openalex_search,         2),
+                (3, "wikipedia",        self._wikipedia_search,        2),
             ],
             "news":     [
                 (0, "rss",        self._rss_search,        3),
@@ -690,6 +710,114 @@ class WebSearchTool(Tool):
                     pass
 
         return results[:max_results]
+
+    # ------------------------------------------------------------------
+    # Source: Semantic Scholar (Allen Institute — 200M+ academic papers)
+    # ------------------------------------------------------------------
+
+    def _semantic_scholar_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """
+        Semantic Scholar Graph API — free, no key required.
+        Returns paper title, abstract snippet, year, and venue.
+        """
+        try:
+            resp = self._session.get(
+                self._SEMANTIC_API,
+                params={
+                    "query": query,
+                    "limit": max_results,
+                    "fields": "title,abstract,year,venue,authors,externalIds",
+                },
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        except Exception as exc:
+            logger.debug("Semantic Scholar search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for paper in data[:max_results]:
+            title = paper.get("title") or ""
+            abstract = (paper.get("abstract") or "")[:300]
+            year = paper.get("year") or ""
+            venue = paper.get("venue") or ""
+            authors = paper.get("authors") or []
+            author_str = ", ".join(a.get("name", "") for a in authors[:3])
+            if len(authors) > 3:
+                author_str += " et al."
+            paper_id = paper.get("externalIds", {}).get("DOI") or paper.get("paperId", "")
+            url = (f"https://doi.org/{paper_id}" if paper.get("externalIds", {}).get("DOI")
+                   else f"https://www.semanticscholar.org/paper/{paper.get('paperId', '')}")
+            meta = " | ".join(filter(None, [str(year), venue, author_str]))
+            snippet = f"{meta}\n{abstract}" if abstract else meta
+            if title:
+                results.append(SearchResult(
+                    title=title, url=url, snippet=snippet[:400], source="semantic_scholar"
+                ))
+        return results
+
+    # ------------------------------------------------------------------
+    # Source: OpenAlex (open academic graph — 240M+ scholarly works)
+    # ------------------------------------------------------------------
+
+    def _openalex_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """
+        OpenAlex free API — no key required (polite pool).
+        Returns title, abstract inverted index reconstructed, year, and DOI.
+        """
+        try:
+            resp = self._session.get(
+                self._OPENALEX_API,
+                params={
+                    "search": query,
+                    "per-page": max_results,
+                    "select": "title,abstract_inverted_index,publication_year,doi,authorships,primary_location",
+                    "mailto": "zenus@zenus.io",  # polite pool for better rate limits
+                },
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            results_data = resp.json().get("results", [])
+        except Exception as exc:
+            logger.debug("OpenAlex search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for work in results_data[:max_results]:
+            title = work.get("title") or ""
+            year = work.get("publication_year") or ""
+            doi = work.get("doi") or ""
+            url = doi if doi else ""
+
+            # Reconstruct abstract from inverted index
+            inv_idx = work.get("abstract_inverted_index") or {}
+            abstract = ""
+            if inv_idx:
+                positions: list = []
+                for word, pos_list in inv_idx.items():
+                    for pos in pos_list:
+                        positions.append((pos, word))
+                positions.sort()
+                abstract = " ".join(w for _, w in positions)[:300]
+
+            # Authors
+            authorships = work.get("authorships") or []
+            authors = [a.get("author", {}).get("display_name", "") for a in authorships[:3]]
+            author_str = ", ".join(filter(None, authors))
+            if len(authorships) > 3:
+                author_str += " et al."
+
+            venue = (work.get("primary_location") or {}).get("source", {})
+            venue_name = (venue.get("display_name") or "") if isinstance(venue, dict) else ""
+            meta = " | ".join(filter(None, [str(year), venue_name, author_str]))
+            snippet = f"{meta}\n{abstract}" if abstract else meta
+
+            if title:
+                results.append(SearchResult(
+                    title=title, url=url, snippet=snippet[:400], source="openalex"
+                ))
+        return results
 
     # ------------------------------------------------------------------
     # Source: DuckDuckGo Instant Answer

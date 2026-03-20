@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TTS** (`voice/tts.py`): engine-init messages (`✓ Using Piper TTS`, `✓ Using system TTS`, fallback notices) gated behind `debug.voice`; Piper/system error messages converted from `print()` to `logger.error()`.
 
 ### Added
+- **Semantic Scholar source** (`tools/web_search.py`): free Allen Institute API (200M+ academic papers) added as first-priority source for academic queries. Returns title, abstract, year, venue, and up to 3 authors. No API key required.
+- **OpenAlex source** (`tools/web_search.py`): free open academic graph (240M+ scholarly works) added as third-priority academic source. Reconstructs abstract from inverted index. Uses polite-pool mode (`?mailto=zenus@zenus.io`) for better rate limits.
+- **Movie/entertainment temporal patterns**: `now playing`, `in theaters`, `current movies`, `box office`, `new movies this week`, `upcoming movie releases`, `what's showing`, `streaming now`, and several more — all now correctly trigger web search instead of falling through to the browser tool.
+- **Attribution temporal patterns**: `who made/created/developed/wrote/authored/invented/designed/built` added to `_TEMPORAL_PATTERNS`. LLMs frequently hallucinate authorship of obscure works (benchmarks, algorithms, datasets); searching eliminates this risk.
+- 48 new unit tests covering the two new sources, the new temporal patterns, and the updated academic routing.
+
+### Changed
+- **Academic query fallback routing** (`tools/web_search.py`): academic category now uses Semantic Scholar → arXiv → OpenAlex → Wikipedia (instead of arXiv → Wikipedia → HackerNews). HackerNews removed from academic routing as it rarely surfaces peer-reviewed content.
+- **`_ACADEMIC_QUERY_RE`**: extended with `citation`, `peer-review`, `preprint`, `conference`, `proceedings`, `semantic scholar`, `pubmed`, `doi` for better academic query classification.
+
+### Added
 - **Zenus Voice v0.2.0 — local-first rewrite** (`packages/voice/`):
   - **`stt.py`**: rewritten to use `faster-whisper` (CTranslate2 backend) — 4× faster than `openai-whisper`, no PyTorch required, int8 quantization by default. Public API (`SpeechToText`, `WhisperModel`, `TranscriptionResult`, `get_stt`) unchanged.
   - **`wake_word.py`**: rewritten to use `openwakeword` — fully local, no API key. `WakeWordDetector` processes 80 ms audio frames via openwakeword's pre-trained models (`alexa`, `hey_jarvis`, etc.); `TextFallbackDetector` (renamed from `SimpleWakeWordDetector`, alias kept) uses faster-whisper for text-matching when openwakeword is not installed. `create_wake_detector()` auto-picks the best implementation.
