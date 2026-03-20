@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime, timezone, timedelta
 
 import pytest
 
@@ -25,6 +24,7 @@ from zenus_core.tools.web_search import (
     format_results_for_context,
     _first_sentence,
     _TEMPORAL_RE,
+    _ACTION_REQUEST_RE,
     _SPORTS_QUERY_RE,
     _TECH_QUERY_RE,
     _ACADEMIC_QUERY_RE,
@@ -53,7 +53,7 @@ class TestSearchResult:
 class TestSearchDecisionEngineTemporalPatterns:
     @pytest.fixture
     def engine(self):
-        return SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=6)
+        return SearchDecisionEngine()
 
     @pytest.mark.parametrize("query", [
         "what is the score today",
@@ -65,12 +65,14 @@ class TestSearchDecisionEngineTemporalPatterns:
         "breaking news this week",
         "news about recently announced features",
         "stock price today",
-        "how to install Docker latest",
         "who is the CEO of Tesla",
         "match results this month",
-        "release date of macOS",
+        "new release of macOS",
         "exchange rate USD to EUR",
         "playoff standings",
+        "who is the current president of Brazil",
+        "who owns OpenAI",
+        "what are the next fixtures for Arsenal",
     ])
     def test_temporal_query_triggers_search(self, engine, query):
         should, reason = engine.should_search(query)
@@ -84,51 +86,51 @@ class TestSearchDecisionEngineTemporalPatterns:
 
 
 # ---------------------------------------------------------------------------
-# SearchDecisionEngine — knowledge gap (Signal 2)
+# SearchDecisionEngine — current-status patterns (leadership/ownership)
 # ---------------------------------------------------------------------------
 
-class TestSearchDecisionEngineKnowledgeGap:
-    def test_large_gap_factual_query_triggers_search(self):
-        engine = SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=6)
-        should, reason = engine.should_search("what is the population of France")
-        assert should is True
-        assert "out of date" in reason
+class TestSearchDecisionEngineCurrentStatus:
+    """
+    Current-status queries (CEO, president, ownership) are in _TEMPORAL_PATTERNS
+    and must trigger search even without explicit "latest/current" markers.
+    Timeless factual questions must NOT trigger search.
+    """
 
-    def test_small_gap_does_not_trigger_on_factual(self):
-        # Set cutoff to yesterday — gap is 0 months
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
-        engine = SearchDecisionEngine(training_cutoff=yesterday, gap_threshold_months=6)
-        should, _ = engine.should_search("what is the capital of France")
-        assert should is False
+    @pytest.fixture
+    def engine(self):
+        return SearchDecisionEngine()
 
-    def test_large_gap_non_factual_does_not_trigger(self):
-        engine = SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=6)
-        # Not a factual starter, not temporal
-        should, _ = engine.should_search("create a directory named projects")
-        assert should is False
+    @pytest.mark.parametrize("query", [
+        "who is the CEO of Apple",
+        "who is the current president of Brazil",
+        "who is the prime minister of the UK",
+        "who is the coach of Manchester City",
+        "who owns Twitter now",
+        "who runs OpenAI",
+        "current CEO of Tesla",
+        "current champion of the Champions League",
+        "who won the last election",
+    ])
+    def test_current_status_triggers_search(self, engine, query):
+        should, reason = engine.should_search(query)
+        assert should is True, f"Expected search for: {query!r}"
 
-    def test_gap_reason_includes_months(self):
-        engine = SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=6)
-        should, reason = engine.should_search("who is the president of the US")
-        assert should
-        assert "months" in reason
-
-    def test_invalid_cutoff_returns_zero_gap(self):
-        engine = SearchDecisionEngine(training_cutoff="not-a-date", gap_threshold_months=6)
-        gap = engine._knowledge_gap_months()
-        assert gap == 0
-
-    def test_gap_threshold_boundary(self):
-        # Gap exactly at threshold — should trigger
-        engine = SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=6)
-        gap = engine._knowledge_gap_months()
-        assert gap >= 6  # 5+ years old training data
-
-    def test_high_threshold_prevents_gap_trigger(self):
-        engine = SearchDecisionEngine(training_cutoff="2020-01-01", gap_threshold_months=9999)
-        # Gap is large but threshold is unreachably high — no trigger for non-temporal
-        should, _ = engine.should_search("what is the capital of France")
-        assert should is False
+    @pytest.mark.parametrize("query", [
+        "who are the best music composers of all time",
+        "who invented the telephone",
+        "who wrote Hamlet",
+        "who was the first president of the US",
+        "who discovered gravity",
+        "what is photosynthesis",
+        "what is the capital of France",
+        "create a directory named projects",
+        "can you check my system resources",
+        "install Python on my machine",
+        "show me running processes",
+    ])
+    def test_timeless_or_action_does_not_trigger_search(self, engine, query):
+        should, _ = engine.should_search(query)
+        assert should is False, f"Expected NO search for: {query!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +139,7 @@ class TestSearchDecisionEngineKnowledgeGap:
 
 class TestLooksFactual:
     @pytest.mark.parametrize("query,expected", [
+        # Clear factual lookups → True
         ("what is the speed of light", True),
         ("who invented the telephone", True),
         ("when was the Eiffel Tower built", True),
@@ -150,11 +153,21 @@ class TestLooksFactual:
         ("did the team win", True),
         ("has the patch been released", True),
         ("have you seen this", True),
-        ("can you help me", True),
-        ("will it rain tomorrow", True),
-        ("are you ready", True),
-        ("were they successful", True),
-        # Non-factual starters
+        ("tell me the latest Claude version", True),
+        ("can you tell me what are next games of Palmeiras", True),
+        ("could you tell me who won the match", True),
+        ("do you know who is the CEO of Google", True),
+        ("find me the best restaurants nearby", True),
+        # Action commands → False
+        ("can you check my system resources", False),
+        ("can you install Python", False),
+        ("could you run the tests", False),
+        ("can you update my config file", False),
+        ("can you check my disk usage", False),
+        ("please check the logs", False),
+        ("can you show me running processes", False),
+        ("can you help me install Docker", False),
+        # Non-factual starters → False
         ("create a directory", False),
         ("open my browser", False),
         ("move the file", False),
@@ -162,7 +175,20 @@ class TestLooksFactual:
     ])
     def test_looks_factual(self, query, expected):
         result = SearchDecisionEngine._looks_factual(query)
-        assert result == expected
+        assert result == expected, f"_looks_factual({query!r}) expected {expected}"
+
+    def test_action_request_re_matches_action_verbs(self):
+        """_ACTION_REQUEST_RE must match common action commands."""
+        assert _ACTION_REQUEST_RE.match("can you check my disk")
+        assert _ACTION_REQUEST_RE.match("can you install Python")
+        assert _ACTION_REQUEST_RE.match("could you run the server")
+        assert _ACTION_REQUEST_RE.match("can you show me running processes")
+        assert _ACTION_REQUEST_RE.match("please stop the service")
+
+    def test_action_request_re_does_not_match_tell_me(self):
+        """'can you tell me' is a lookup, not an action."""
+        assert not _ACTION_REQUEST_RE.match("can you tell me who is the CEO")
+        assert not _ACTION_REQUEST_RE.match("could you tell me the price")
 
 
 # ---------------------------------------------------------------------------
@@ -746,15 +772,40 @@ class TestFallbackSearch:
 
 class TestTemporalPatterns:
     @pytest.mark.parametrize("text", [
-        "scores", "standings", "champion", "league",
-        "match", "game", "final", "playoff",
-        "latest version", "current version", "released",
-        "changelog", "updated", "new feature",
+        # Sports
+        "scores", "standings", "champion", "match", "final", "playoff",
+        "fixture", "upcoming game", "next match",
+        # Software versions
+        "latest version", "current version", "new version",
+        "new release", "changelog", "release notes",
+        # News
         "today", "this week", "this month", "recently",
         "news", "announced", "breaking",
-        "price", "stock", "crypto", "bitcoin",
-        "exchange rate", "currency",
-        "weather", "forecast", "temperature",
+        # Prices
+        "price", "stock price", "crypto", "bitcoin",
+        "exchange rate",
+        # Weather
+        "weather", "forecast",
+        # Current status
+        "who is the CEO of Apple",
+        "who is the president of France",
+        "who owns the company",
+        "current champion of the league",
+        "who won the match",
     ])
     def test_pattern_matches(self, text):
         assert _TEMPORAL_RE.search(text) is not None, f"Expected match for: {text!r}"
+
+    @pytest.mark.parametrize("text", [
+        # Timeless questions — must NOT trigger search
+        "who are the best composers of all time",
+        "what is photosynthesis",
+        "who invented the telephone",
+        "how does a computer work",
+        "what is the capital of France",
+        "create a directory",
+        "can you check my system resources",
+        "install Python on my machine",
+    ])
+    def test_timeless_does_not_match(self, text):
+        assert _TEMPORAL_RE.search(text) is None, f"Expected NO match for: {text!r}"

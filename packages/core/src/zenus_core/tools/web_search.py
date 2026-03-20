@@ -30,7 +30,6 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
 
@@ -59,28 +58,50 @@ class SearchResult:
 
 _TEMPORAL_PATTERNS = [
     # Sports and live events (singular and plural)
-    r"\bscores?\b", r"\bstandings?\b", r"\bchampion(?:ship)?\b", r"\bleagues?\b",
-    r"\bmatch(?:es)?\b", r"\bgames?\b", r"\bfinals?\b", r"\bplayoffs?\b",
-    r"\bfixtures?\b", r"\bschedules?\b", r"\bupcoming\s+(?:game|match|fixture)\b",
+    r"\bscores?\b", r"\bstandings?\b", r"\bchampion(?:ship)?\b",
+    r"\bmatch(?:es)?\b", r"\bfinals?\b", r"\bplayoffs?\b",
+    r"\bfixtures?\b", r"\bupcoming\s+(?:game|match|fixture)\b",
     r"\bnext\s+(?:game|match|fixture)\b",
-    # Software versions
-    r"\blatest\s+version\b", r"\bcurrent\s+version\b", r"\brelease[d]?\b",
-    r"\bchangelog\b", r"\bupdate[d]?\b", r"\bnew\s+feature\b",
+    # Software versions (explicit version/release asks)
+    r"\blatest\s+version\b", r"\bcurrent\s+version\b",
+    r"\bnew\s+(?:version|release|feature)\b",
+    r"\bchangelog\b", r"\brelease\s+notes?\b",
     # News and current events
     r"\btoday\b", r"\bthis\s+week\b", r"\bthis\s+month\b", r"\brecently\b",
     r"\bnews\b", r"\bannounce[d]?\b", r"\bbreaking\b",
     # Prices and markets
-    r"\bprice[s]?\b", r"\bstock[s]?\b", r"\bcrypto\b", r"\bbitcoin\b",
-    r"\bexchange\s+rate\b", r"\bcurrency\b",
+    r"\bprice[s]?\b", r"\bstock\s+(?:price|market|quote)\b",
+    r"\bcrypto(?:currency)?\b", r"\bbitcoin\b", r"\bethereum\b",
+    r"\bexchange\s+rate\b", r"\bcurrency\s+(?:rate|value|convert)\b",
     # Weather
-    r"\bweather\b", r"\bforecast\b", r"\btemperature\b",
-    # People and companies
-    r"\bwho\s+is\s+(the\s+)?ceo\b", r"\bwho\s+owns\b", r"\bwho\s+won\b",
-    # How-to for actively developed tech
-    r"\bhow\s+to\s+(?:install|use|configure|setup|upgrade)\b",
+    r"\bweather\b", r"\bforecast\b",
+    # Current-status: leadership/ownership — these change without "latest" marker
+    r"\bwho\s+is\s+(?:the\s+)?(?:current\s+)?(?:ceo|cto|cfo|president|prime\s+minister|"
+    r"secretary|chairman|governor|mayor|chancellor|coach|manager|captain|owner|director|head)\b",
+    r"\bwho\s+(?:owns|runs|leads|heads|controls|governs|founded|represents)\s",
+    r"\bcurrent\s+(?:ceo|cto|cfo|president|prime\s+minister|owner|champion|leader|"
+    r"coach|manager|version|release|status)\b",
+    r"\bwho\s+won\b", r"\bwho\s+is\s+(?:the\s+)?(?:lead|number\s+one|top|ranked)\b",
 ]
 
 _TEMPORAL_RE = re.compile("|".join(_TEMPORAL_PATTERNS), re.IGNORECASE)
+
+
+# Queries that look like action commands despite starting with "can/could you".
+# These should NOT be treated as factual lookups even if temporal patterns fire.
+_ACTION_REQUEST_RE = re.compile(
+    r"^(?:can|could|please|would\s+you)\s+(?:you\s+)?(?:"
+    r"check|run|execute|start|stop|restart|kill|"
+    r"install|uninstall|upgrade|update|download|upload|"
+    r"open|close|create|make|build|delete|remove|move|copy|rename|"
+    r"edit|write|generate|fix|deploy|launch|configure|setup|"
+    r"monitor|watch|scan|list\s+(?:my|the|all)|"
+    r"show\s+(?:me\s+)?(?:my\s+)?(?:files?|disk|memory|cpu|ram|processes?|"
+    r"services?|logs?|status|running|usage)|"
+    r"help\s+me\s+(?:install|setup|configure|create|fix|build|run|deploy)"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -91,57 +112,43 @@ class SearchDecisionEngine:
     """
     Decides whether to perform a web search before answering.
 
-    Args:
-        training_cutoff: ISO date string of LLM knowledge cutoff,
-                         e.g. "2024-04-01". Passed from LLM config.
-        gap_threshold_months: Minimum gap (in months) between cutoff and today
-                              to consider a query "potentially stale".
-    """
+    Only queries that are genuinely time-sensitive trigger a search:
+    sports schedules/scores, software versions, current leadership/ownership,
+    prices, weather, news, and similar topics where training data goes stale.
 
-    def __init__(
-        self,
-        training_cutoff: str = "2024-04-01",
-        gap_threshold_months: int = 6,
-    ) -> None:
-        self._cutoff = training_cutoff
-        self._gap_threshold = gap_threshold_months
+    Timeless factual questions ("who are the best composers?", "what is
+    photosynthesis?") and action commands ("check my disk", "install Python")
+    are deliberately NOT flagged for search.
+    """
 
     def should_search(self, query: str) -> Tuple[bool, str]:
         """
         Return (True, reason) if a web search is warranted, else (False, "").
+        A search is triggered only when the query matches an explicit
+        time-sensitive pattern — not just because the training data is old.
         """
-        # Signal 1: query pattern is inherently time-sensitive
         if _TEMPORAL_RE.search(query):
             return True, "query requires current information"
-
-        # Signal 2: knowledge gap is large enough to risk stale answers
-        gap = self._knowledge_gap_months()
-        if gap >= self._gap_threshold and self._looks_factual(query):
-            return True, f"LLM knowledge may be {gap} months out of date"
-
         return False, ""
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _knowledge_gap_months(self) -> int:
-        """Months elapsed since the LLM training cutoff."""
-        try:
-            cutoff = datetime.fromisoformat(self._cutoff).replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            delta = now - cutoff
-            return int(delta.days / 30)
-        except Exception:
-            return 0
 
     @staticmethod
     def _looks_factual(query: str) -> bool:
-        """Heuristic: does the query look like it's asking for a fact?"""
+        """
+        Return True if the query is a factual lookup (not an action command).
+
+        Used by the orchestrator to decide whether to bypass plan execution
+        and synthesise an answer directly from search results.  Action
+        commands like "can you check my disk" or "can you install Python"
+        must return False so they are routed to plan execution instead.
+        """
+        # Action commands starting with can/could/please/would you <verb>
+        if _ACTION_REQUEST_RE.match(query.strip()):
+            return False
         factual_starters = re.compile(
             r"^(?:what|who|when|where|which|how\s+(?:many|much|old)|is\s+there|"
-            r"does|did|has|have|can|will|are|were|could|tell\s+me|"
-            r"can\s+you|could\s+you|do\s+you\s+know|find\s+(?:me|out))\b",
+            r"does|did|has|have|will|are|were|"
+            r"tell\s+me|can\s+you\s+tell|could\s+you\s+tell|"
+            r"do\s+you\s+know|find\s+(?:me|out))\b",
             re.IGNORECASE,
         )
         return bool(factual_starters.match(query.strip()))
