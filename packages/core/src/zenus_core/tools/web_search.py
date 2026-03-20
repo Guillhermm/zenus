@@ -28,16 +28,65 @@ import concurrent.futures
 import html
 import logging
 import re
-import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
+
+import defusedxml.ElementTree as ET
 
 import requests
 
 from zenus_core.tools.base import Tool
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Secure HTML stripping
+# ---------------------------------------------------------------------------
+
+class _SafeHTMLStripper(HTMLParser):
+    """
+    Strip HTML tags while *discarding* the content of <script> and <style>
+    blocks.  Plain regex tag-stripping leaves script/style text in the
+    output, which then enters LLM context.
+    """
+
+    _SKIP_TAGS = {"script", "style", "noscript"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._chunks: list[str] = []
+        self._skip_depth: int = 0
+
+    def handle_starttag(self, tag: str, attrs: object) -> None:
+        if tag.lower() in self._SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0:
+            self._chunks.append(data)
+
+    def get_text(self) -> str:
+        return " ".join(self._chunks).strip()
+
+
+def _strip_html(raw: str) -> str:
+    """Strip HTML tags safely, discarding <script>/<style> content."""
+    if not raw:
+        return ""
+    stripper = _SafeHTMLStripper()
+    try:
+        stripper.feed(raw)
+        return stripper.get_text()
+    except Exception:
+        # Fall back to simple regex if parser chokes on malformed HTML
+        return re.sub(r"<[^>]+>", "", raw).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -448,7 +497,7 @@ class WebSearchTool(Tool):
         results: List[SearchResult] = []
         for h in hits[:max_results]:
             title = h["title"]
-            snippet = extract_map.get(title) or html.unescape(re.sub(r"<[^>]+>", "", h.get("snippet", "")))
+            snippet = extract_map.get(title) or _strip_html(h.get("snippet", ""))
             if snippet:
                 results.append(SearchResult(
                     title=title,
@@ -611,7 +660,7 @@ class WebSearchTool(Tool):
                 desc_el = (entry.find(f"{{{ns_atom}}}summary") or
                            entry.find(f"{{{ns_atom}}}content") or
                            entry.find("description"))
-                desc = re.sub(r"<[^>]+>", "", (desc_el.text or "")).strip() if desc_el is not None else ""
+                desc = _strip_html(desc_el.text or "") if desc_el is not None else ""
                 # Link
                 link_el = entry.find(f"{{{ns_atom}}}link") or entry.find("link")
                 if link_el is not None:

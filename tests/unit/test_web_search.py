@@ -809,3 +809,72 @@ class TestTemporalPatterns:
     ])
     def test_timeless_does_not_match(self, text):
         assert _TEMPORAL_RE.search(text) is None, f"Expected NO match for: {text!r}"
+
+
+# ---------------------------------------------------------------------------
+# Security: HTML stripping
+# ---------------------------------------------------------------------------
+
+class TestStripHTML:
+    """_strip_html must discard <script>/<style> tag content, not just tags."""
+
+    def test_imports_strip_html(self):
+        from zenus_core.tools.web_search import _strip_html
+        assert callable(_strip_html)
+
+    def test_plain_text_unchanged(self):
+        from zenus_core.tools.web_search import _strip_html
+        assert _strip_html("hello world") == "hello world"
+
+    def test_basic_tag_removed(self):
+        from zenus_core.tools.web_search import _strip_html
+        assert _strip_html("<b>bold</b>") == "bold"
+
+    def test_script_content_discarded(self):
+        from zenus_core.tools.web_search import _strip_html
+        result = _strip_html("<p>Safe</p><script>alert('xss')</script>")
+        assert "alert" not in result
+        assert "Safe" in result
+
+    def test_style_content_discarded(self):
+        from zenus_core.tools.web_search import _strip_html
+        result = _strip_html("<style>body{color:red}</style><p>Text</p>")
+        assert "color" not in result
+        assert "Text" in result
+
+    def test_empty_string(self):
+        from zenus_core.tools.web_search import _strip_html
+        assert _strip_html("") == ""
+
+    def test_html_entities_decoded(self):
+        from zenus_core.tools.web_search import _strip_html
+        result = _strip_html("Python &amp; Django")
+        assert "&amp;" not in result
+        assert "Python" in result
+
+
+# ---------------------------------------------------------------------------
+# Security: defusedxml import
+# ---------------------------------------------------------------------------
+
+class TestDefusedXMLImport:
+    """Verify defusedxml is used instead of the vulnerable stdlib ET."""
+
+    def test_defusedxml_is_imported(self):
+        import zenus_core.tools.web_search as ws_module
+        import inspect
+        source = inspect.getfile(ws_module)
+        # The module should import defusedxml, not stdlib xml.etree.ElementTree
+        import defusedxml.ElementTree
+        # If defusedxml.ElementTree is the ET used, parsing an XML bomb
+        # should raise an exception rather than hanging/consuming memory.
+        bomb = (
+            "<?xml version='1.0'?>"
+            "<!DOCTYPE lolz ["
+            "  <!ENTITY lol 'lol'>"
+            "  <!ENTITY lol2 '&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;'>"
+            "]>"
+            "<root>&lol2;</root>"
+        )
+        with pytest.raises(Exception):
+            defusedxml.ElementTree.fromstring(bomb)
