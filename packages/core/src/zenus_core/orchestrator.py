@@ -292,6 +292,25 @@ class Orchestrator:
                     if context
                     else f"[Web Search Results - {_search_reason}]\n{_pre_search_context}"
                 )
+            elif _search_reason:
+                # Search was triggered but DDG returned nothing.
+                # Skip translate_intent entirely — generating WebSearch tool steps
+                # would just produce empty observations (same backend, same result).
+                # Answer directly from training knowledge via ask().
+                _no_results_ctx = (
+                    f"{context}\n\nNote: A web search was attempted for this query "
+                    "but returned no current results. Answer from training knowledge "
+                    "and clearly acknowledge you may not have up-to-date data."
+                    if context
+                    else (
+                        "Note: A web search was attempted for this query but returned "
+                        "no current results. Answer from training knowledge and clearly "
+                        "acknowledge you may not have up-to-date data."
+                    )
+                )
+                answer = self.llm.ask(user_input, _no_results_ctx)
+                console.print(answer)
+                return answer
 
             # Step 1.5: Goal Inference - Understand high-level intent
             if self.enable_goal_inference:
