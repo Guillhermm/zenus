@@ -11,6 +11,7 @@ High-level orchestration of:
 import asyncio
 import os
 from typing import Optional, Dict
+from zenus_core.debug import get_debug_flags
 from zenus_core.brain.llm.factory import get_llm
 from zenus_core.brain.planner import execute_plan
 from zenus_core.brain.adaptive_planner import AdaptivePlanner
@@ -200,8 +201,6 @@ class Orchestrator:
         # Web search — transparent context enrichment (no API key required)
         self.web_search = WebSearchTool()
         self.search_engine = SearchDecisionEngine()
-        # Debug flag: config takes precedence, ZENUS_SEARCH_DEBUG env var as fallback
-        self._search_debug = self._load_search_debug()
     
     def execute_command(
         self,
@@ -243,7 +242,8 @@ class Orchestrator:
                 if not force_provider and _detected_provider:
                     force_provider = _detected_provider
                 label = describe_override(force_provider, _detected_model)
-                console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
+                if get_debug_flags().orchestrator:
+                    console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
 
             # Step 0a: Web search — must run before complexity routing.
             # For lookup queries (questions about facts, schedules, versions…),
@@ -259,13 +259,12 @@ class Orchestrator:
                     _search_results = self.web_search.search(user_input)
                     _pre_search_context = format_results_for_context(_search_results)
                     _query_category = self.web_search._classify_query(user_input)
-                    if self.show_progress:
+                    if self.show_progress and get_debug_flags().search:
                         if _pre_search_context:
                             console.print(f"[dim cyan]↳ Web search: {_search_reason}[/dim cyan]")
-                            if self._search_debug:
-                                console.print(f"[dim]↳ Query type: {_query_category} | {len(_search_results)} result(s)[/dim]")
-                                for _r in _search_results:
-                                    console.print(f"[dim]   [{_r.source}] {_r.title}: {_r.snippet[:80]}...[/dim]")
+                            console.print(f"[dim]↳ Query type: {_query_category} | {len(_search_results)} result(s)[/dim]")
+                            for _r in _search_results:
+                                console.print(f"[dim]   [{_r.source}] {_r.title}: {_r.snippet[:80]}...[/dim]")
                         else:
                             console.print(f"[dim yellow]↳ Web search attempted — no results[/dim yellow]")
                     force_oneshot = True
@@ -299,8 +298,9 @@ class Orchestrator:
 
                 if task_complexity.needs_iteration:
                     # Automatically use iterative mode for complex tasks
-                    console.print(f"[dim]Detected complex task (confidence: {task_complexity.confidence:.0%})[/dim]")
-                    console.print(f"[dim]Using iterative execution ({task_complexity.reasoning})[/dim]\n")
+                    if get_debug_flags().orchestrator:
+                        console.print(f"[dim]Detected complex task (confidence: {task_complexity.confidence:.0%})[/dim]")
+                        console.print(f"[dim]Using iterative execution ({task_complexity.reasoning})[/dim]\n")
                     return self.execute_iterative(
                         user_input,
                         max_iterations=task_complexity.estimated_steps * 2,  # Dynamic max
@@ -366,38 +366,40 @@ class Orchestrator:
             selected_model, complexity = self.router.route(user_input, iterative=False, force_model=force_provider)
             
             # Show routing decision (if not simple)
-            if complexity.score > 0.5 and self.show_progress:
+            if complexity.score > 0.5 and self.show_progress and get_debug_flags().orchestrator:
                 console.print(f"[dim]Task complexity: {complexity.score:.2f} → Using {selected_model}[/dim]")
             
             # Step 1.7: Tree of Thoughts - Explore multiple solution paths
             use_tree_of_thoughts = self.enable_tree_of_thoughts and complexity.score > 0.6
             
             if use_tree_of_thoughts:
-                console.print("[cyan]🌳 Tree of Thoughts:[/cyan] Exploring multiple solution paths...\n")
-                
+                if get_debug_flags().orchestrator:
+                    console.print("[cyan]🌳 Tree of Thoughts:[/cyan] Exploring multiple solution paths...\n")
+
                 tree = self.tree_of_thoughts.explore(user_input, context, num_paths=3)
-                
-                # Show explored paths
-                console.print(f"[bold]Explored {len(tree.paths)} alternative approaches:[/bold]\n")
-                for path in tree.paths:
-                    quality_color = {
-                        "excellent": "green",
-                        "good": "cyan",
-                        "acceptable": "yellow",
-                        "risky": "red"
-                    }.get(path.quality.value, "white")
-                    
-                    console.print(f"[{quality_color}]Path {path.path_id}:[/{quality_color}] {path.description}")
-                    console.print(f"  Confidence: {path.confidence:.0%} | Risk: {path.risk_level} | Time: {path.estimated_time}")
-                    console.print(f"  ✓ Pros: {', '.join(path.pros[:2])}")
-                    if path.cons:
-                        console.print(f"  ✗ Cons: {', '.join(path.cons[:2])}")
-                    console.print()
-                
-                # Show selected path
-                best_path = tree.get_best_path()
-                console.print(f"[green bold]✓ Selected Path {best_path.path_id}:[/green bold] {best_path.description}")
-                console.print(f"[dim]{tree.selection_reasoning}[/dim]\n")
+
+                if get_debug_flags().orchestrator:
+                    # Show explored paths
+                    console.print(f"[bold]Explored {len(tree.paths)} alternative approaches:[/bold]\n")
+                    for path in tree.paths:
+                        quality_color = {
+                            "excellent": "green",
+                            "good": "cyan",
+                            "acceptable": "yellow",
+                            "risky": "red"
+                        }.get(path.quality.value, "white")
+
+                        console.print(f"[{quality_color}]Path {path.path_id}:[/{quality_color}] {path.description}")
+                        console.print(f"  Confidence: {path.confidence:.0%} | Risk: {path.risk_level} | Time: {path.estimated_time}")
+                        console.print(f"  ✓ Pros: {', '.join(path.pros[:2])}")
+                        if path.cons:
+                            console.print(f"  ✗ Cons: {', '.join(path.cons[:2])}")
+                        console.print()
+
+                    # Show selected path
+                    best_path = tree.get_best_path()
+                    console.print(f"[green bold]✓ Selected Path {best_path.path_id}:[/green bold] {best_path.description}")
+                    console.print(f"[dim]{tree.selection_reasoning}[/dim]\n")
                 
                 # Use selected path's intent
                 intent = best_path.intent
@@ -418,7 +420,7 @@ class Orchestrator:
                 
                 if intent:
                     # Cache hit! Instant response, zero tokens
-                    if self.show_progress:
+                    if self.show_progress and get_debug_flags().orchestrator:
                         console.print("[dim green]✓ Cache hit (instant, $0.00)[/dim green]")
                     
                     # Update router stats (cache hit counts as using selected model but zero tokens)
@@ -850,12 +852,11 @@ class Orchestrator:
         if should_search:
             search_results = self.web_search.search(user_input)
             search_context = format_results_for_context(search_results)
-            if self.show_progress:
+            if self.show_progress and get_debug_flags().search:
                 if search_context:
                     console.print(f"[dim cyan]↳ Web search: {search_reason}[/dim cyan]")
-                    if self._search_debug:
-                        _cat = self.web_search._classify_query(user_input)
-                        console.print(f"[dim]↳ Query type: {_cat} | {len(search_results)} result(s)[/dim]")
+                    _cat = self.web_search._classify_query(user_input)
+                    console.print(f"[dim]↳ Query type: {_cat} | {len(search_results)} result(s)[/dim]")
                 else:
                     console.print("[dim yellow]↳ Web search returned no results[/dim yellow]")
 
@@ -1112,21 +1113,6 @@ class Orchestrator:
             self.logger.log_error(error_msg, {"user_input": user_input})
             print_error(error_msg)
             return error_msg
-
-    @staticmethod
-    def _load_search_debug() -> bool:
-        """
-        Return True if search debug output is enabled.
-        Priority: config.yaml search.debug → ZENUS_SEARCH_DEBUG env var.
-        """
-        try:
-            from zenus_core.config.loader import get_config
-            cfg = get_config()
-            if hasattr(cfg, "search") and cfg.search.debug:
-                return True
-        except Exception:
-            pass
-        return bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
 
     def _build_context(self, user_input: str) -> str:
         """Build context string from memory and environment"""

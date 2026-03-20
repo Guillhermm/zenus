@@ -113,9 +113,62 @@ class SearchConfig(BaseModel):
     debug: bool = Field(
         default=False,
         description=(
-            "Show query category, source breakdown, and raw results before the "
-            "synthesised answer. Overridden by ZENUS_SEARCH_DEBUG env var."
+            "Legacy alias for debug.search. Show query category, source breakdown, "
+            "and raw results before the synthesised answer. "
+            "Prefer setting debug.search: true instead."
         )
+    )
+
+
+class DebugConfig(BaseModel):
+    """Debug output controls.
+
+    All flags default to False so regular users see clean output.
+    Set ``enabled: true`` (or ``ZENUS_DEBUG=1``) to turn everything on at once.
+    Individual subsystem flags override the master switch per-subsystem.
+
+    Environment variable equivalents (useful for one-off sessions):
+        ZENUS_DEBUG=1                  master — enables all subsystems
+        ZENUS_DEBUG_ORCHESTRATOR=1     routing, complexity, Tree of Thoughts
+        ZENUS_DEBUG_BRAIN=1            prompt evolution, model internals
+        ZENUS_DEBUG_EXECUTION=1        per-step output, parallel fallback
+        ZENUS_DEBUG_VOICE=1            TTS/STT init and pipeline messages
+        ZENUS_DEBUG_SEARCH=1           search decisions and result breakdown
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master debug switch — enables all subsystem flags when True.",
+    )
+    orchestrator: bool = Field(
+        default=False,
+        description=(
+            "Show routing decisions, task-complexity scores, Tree of Thoughts "
+            "exploration, provider/model override notices, and cache hits."
+        ),
+    )
+    brain: bool = Field(
+        default=False,
+        description="Show prompt-evolution promotions and internal brain events.",
+    )
+    execution: bool = Field(
+        default=False,
+        description=(
+            "Show per-step execution output (tool.action: result) and "
+            "parallel-to-sequential fallback notices."
+        ),
+    )
+    voice: bool = Field(
+        default=False,
+        description="Show TTS/STT initialisation messages and pipeline internals.",
+    )
+    search: bool = Field(
+        default=False,
+        description=(
+            "Show query category, source breakdown, and raw result snippets before "
+            "the synthesised answer. Also enabled by ZENUS_SEARCH_DEBUG for "
+            "backwards compatibility."
+        ),
     )
 
 
@@ -153,6 +206,9 @@ class ZenusConfig(BaseModel):
 
     # Search
     search: SearchConfig = Field(default_factory=SearchConfig)
+
+    # Debug output controls
+    debug: DebugConfig = Field(default_factory=DebugConfig)
 
     # Custom settings
     custom: Dict[str, Any] = Field(default_factory=dict, description="Custom settings")

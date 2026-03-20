@@ -27,7 +27,7 @@ class TestPlanner:
         registry.TOOLS.clear()
         registry.TOOLS.update(self.original_tools)
     
-    def test_executes_simple_plan(self, capsys):
+    def test_executes_simple_plan(self):
         """Should execute a simple single-step plan"""
         # Create mock tool
         mock_tool = Mock()
@@ -48,10 +48,6 @@ class TestPlanner:
         
         # Verify tool was called
         mock_tool.scan.assert_called_once_with(path="/tmp")
-        
-        # Verify output
-        captured = capsys.readouterr()
-        assert "Done:" in captured.out
     
     def test_executes_multi_step_plan(self):
         """Should execute multiple steps in sequence"""
@@ -213,7 +209,7 @@ class TestPlanner:
         with pytest.raises(SafetyError):
             execute_plan(intent, parallel=False, privilege_tier=PrivilegeTier.STANDARD)
 
-    def test_privilege_check_allows_privileged_tier(self, capsys):
+    def test_privilege_check_allows_privileged_tier(self):
         """ShellOps should succeed at PRIVILEGED tier"""
         from zenus_core.tools import registry
         from zenus_core.tools.privilege import PrivilegeTier

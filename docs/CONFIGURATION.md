@@ -292,7 +292,7 @@ search:
 | Setting | Config key | Env var |
 |---|---|---|
 | Brave API key | `search.brave_api_key` | `BRAVE_SEARCH_API_KEY` |
-| Debug mode | `search.debug` | `ZENUS_SEARCH_DEBUG=1` |
+| Search debug | `debug.search` | `ZENUS_DEBUG_SEARCH=1` |
 
 Config values take precedence over env vars. Both can be used simultaneously (config for persistent settings, env for temporary overrides).
 
@@ -305,6 +305,38 @@ Config values take precedence over env vars. Both can be used simultaneously (co
 | academic | arXiv, Wikipedia, HackerNews |
 | news | RSS feeds, Reddit, HackerNews, DDG Instant Answer |
 | general | Wikipedia, DDG Instant Answer, RSS feeds |
+
+---
+
+### Debug Output Controls
+
+By default Zenus produces clean, minimal output for end users. Developers can enable detailed debug logging per-subsystem without drowning in irrelevant noise.
+
+```yaml
+# config.yaml
+debug:
+  enabled: false          # master switch — enables every subsystem below
+  orchestrator: false     # routing decisions, complexity scores, Tree of Thoughts, cache hits
+  brain: false            # prompt-evolution promotions, model internals
+  execution: false        # per-step output (tool.action: result), parallel fallback
+  voice: false            # TTS/STT init messages, pipeline internals
+  search: false           # query type, source breakdown, raw result snippets
+```
+
+All flags can also be set via environment variables (useful for a single session without editing `config.yaml`):
+
+| Subsystem | Config key | Env var |
+|---|---|---|
+| Master | `debug.enabled` | `ZENUS_DEBUG=1` |
+| Orchestrator | `debug.orchestrator` | `ZENUS_DEBUG_ORCHESTRATOR=1` |
+| Brain | `debug.brain` | `ZENUS_DEBUG_BRAIN=1` |
+| Execution | `debug.execution` | `ZENUS_DEBUG_EXECUTION=1` |
+| Voice | `debug.voice` | `ZENUS_DEBUG_VOICE=1` |
+| Search | `debug.search` | `ZENUS_DEBUG_SEARCH=1` |
+
+Legacy aliases still work: `ZENUS_SEARCH_DEBUG=1` maps to `debug.search`; `search.debug: true` in config also maps to the search flag.
+
+**Priority:** `config.yaml debug.*` → subsystem env var → master `ZENUS_DEBUG`. Setting the master switch enables all subsystems regardless of the individual flags.
 
 ---
 
@@ -332,7 +364,15 @@ OLLAMA_MODEL=phi3:mini
 
 # Web Search (optional — key-free fallback always available)
 # BRAVE_SEARCH_API_KEY=your-key-here   # https://brave.com/search/api
-# ZENUS_SEARCH_DEBUG=1                 # Show source breakdown (prefer config)
+
+# Debug output (all off by default — prefer config.yaml for persistent use)
+# ZENUS_DEBUG=1                        # master switch (enables all subsystems)
+# ZENUS_DEBUG_ORCHESTRATOR=1           # routing, complexity, Tree of Thoughts
+# ZENUS_DEBUG_BRAIN=1                  # prompt evolution, model internals
+# ZENUS_DEBUG_EXECUTION=1              # per-step execution, parallel fallback
+# ZENUS_DEBUG_VOICE=1                  # TTS/STT init and pipeline messages
+# ZENUS_DEBUG_SEARCH=1                 # search decisions and result breakdown
+# ZENUS_SEARCH_DEBUG=1                 # legacy alias for ZENUS_DEBUG_SEARCH
 ```
 
 ### Programmatic Access

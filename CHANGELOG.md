@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Structured debug-output controls** (`zenus_core/debug.py`): new `DebugFlags` dataclass with per-subsystem flags (`orchestrator`, `brain`, `execution`, `voice`, `search`) and a master `enabled` switch. All flags default to `False` so regular users see clean output; developers can enable exactly the noise they need. Config-first, env-fallback pattern: `debug.*` keys in `config.yaml` take priority, then `ZENUS_DEBUG_<SUBSYSTEM>=1` env vars; `ZENUS_DEBUG=1` enables everything at once. Legacy `ZENUS_SEARCH_DEBUG` and `search.debug: true` continue to work and map to the `search` flag.
+- **`DebugConfig` Pydantic model** (`config/schema.py`): `debug` section added to `ZenusConfig` with typed, documented fields for every subsystem. Added to `config.yaml.example` and `.env.example`.
+- 18 unit tests in `tests/unit/test_debug_flags.py` covering defaults, master switch, per-subsystem env vars, legacy aliases, config-based loading, and cache reset.
+
+### Changed
+- **Orchestrator** (`orchestrator.py`): routing-decision messages, task-complexity scores, Tree of Thoughts path exploration, provider/model override notices, and intent-cache hits are now gated behind `debug.orchestrator`. Web-search debug output (query type, result breakdown) gated behind `debug.search`. Removed the standalone `_load_search_debug()` / `_search_debug` pattern — superseded by `get_debug_flags()`.
+- **Planner** (`brain/planner.py`): per-step `Done: tool.action: result` output and parallel-fallback notice now gated behind `debug.execution`.
+- **Prompt evolution** (`brain/prompt_evolution.py`): variant-promotion message gated behind `debug.brain`; load/save failure messages converted from `print()` to proper `logger.warning()` calls.
+- **Model router** (`brain/model_router.py`): LLM fallback-chain messages gated behind `debug.orchestrator`; stats save failure converted to `logger.warning()`.
+- **TTS** (`voice/tts.py`): engine-init messages (`✓ Using Piper TTS`, `✓ Using system TTS`, fallback notices) gated behind `debug.voice`; Piper/system error messages converted from `print()` to `logger.error()`.
+
+### Added
 - **Zenus Voice v0.2.0 — local-first rewrite** (`packages/voice/`):
   - **`stt.py`**: rewritten to use `faster-whisper` (CTranslate2 backend) — 4× faster than `openai-whisper`, no PyTorch required, int8 quantization by default. Public API (`SpeechToText`, `WhisperModel`, `TranscriptionResult`, `get_stt`) unchanged.
   - **`wake_word.py`**: rewritten to use `openwakeword` — fully local, no API key. `WakeWordDetector` processes 80 ms audio frames via openwakeword's pre-trained models (`alexa`, `hey_jarvis`, etc.); `TextFallbackDetector` (renamed from `SimpleWakeWordDetector`, alias kept) uses faster-whisper for text-matching when openwakeword is not installed. `create_wake_detector()` auto-picks the best implementation.

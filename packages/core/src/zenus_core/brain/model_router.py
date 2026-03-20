@@ -8,6 +8,7 @@ Routes tasks to appropriate LLM based on complexity:
 Includes fallback cascade and cost tracking.
 """
 
+import logging
 import os
 import json
 import time
@@ -16,8 +17,11 @@ from typing import Optional, Dict, List
 from dataclasses import dataclass
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
 from zenus_core.brain.task_complexity import TaskComplexityAnalyzer, ComplexityScore
 from zenus_core.brain.llm.factory import get_available_providers
+from zenus_core.debug import get_debug_flags
 
 
 @dataclass
@@ -294,7 +298,8 @@ class ModelRouter:
                 
                 # Try next in fallback chain
                 if attempt < len(fallback_chain) - 1:
-                    print(f"  [Router] {model_backend} failed, trying {fallback_chain[attempt + 1]}...")
+                    if get_debug_flags().orchestrator:
+                        print(f"  [Router] {model_backend} failed, trying {fallback_chain[attempt + 1]}...")
                     continue
                 else:
                     # All attempts failed
@@ -456,8 +461,7 @@ class ModelRouter:
             with open(self.stats_path, 'w') as f:
                 json.dump(self.stats, f, indent=2)
         except Exception as e:
-            # Non-critical, just log
-            print(f"  [Router] Failed to save stats: {e}")
+            logger.warning("Failed to save router stats: %s", e)
 
 
 def get_router() -> ModelRouter:

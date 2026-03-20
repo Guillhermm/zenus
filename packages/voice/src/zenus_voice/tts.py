@@ -8,6 +8,7 @@ Supports multiple TTS engines:
 All processing happens locally - no cloud APIs!
 """
 
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -15,6 +16,9 @@ from typing import Optional, List
 from dataclasses import dataclass
 from enum import Enum
 import pyttsx3
+from zenus_core.debug import get_debug_flags
+
+logger = logging.getLogger(__name__)
 
 
 class TTSEngine(Enum):
@@ -103,19 +107,19 @@ class PiperTTS:
             stdout, stderr = process.communicate(input=text, timeout=30)
             
             if process.returncode != 0:
-                print(f"Piper error: {stderr}")
+                logger.error("Piper error: %s", stderr)
                 return False
-            
+
             # Play the audio file
             self._play_audio(output_path)
-            
+
             # Clean up
             Path(output_path).unlink(missing_ok=True)
-            
+
             return True
-            
+
         except Exception as e:
-            print(f"Piper TTS failed: {e}")
+            logger.error("Piper TTS failed: %s", e)
             return False
     
     def speak_to_file(self, text: str, output_path: str, config: TTSConfig = TTSConfig()) -> bool:
@@ -143,7 +147,7 @@ class PiperTTS:
             return process.returncode == 0
             
         except Exception as e:
-            print(f"Piper TTS to file failed: {e}")
+            logger.error("Piper TTS to file failed: %s", e)
             return False
     
     def _play_audio(self, audio_path: str):
@@ -167,7 +171,7 @@ class PiperTTS:
                 import winsound
                 winsound.PlaySound(audio_path, winsound.SND_FILENAME)
         except Exception as e:
-            print(f"Failed to play audio: {e}")
+            logger.error("Failed to play audio: %s", e)
 
 
 class SystemTTS:
@@ -206,22 +210,22 @@ class SystemTTS:
             return True
             
         except Exception as e:
-            print(f"System TTS failed: {e}")
+            logger.error("System TTS failed: %s", e)
             return False
-    
+
     def speak_to_file(self, text: str, output_path: str, config: TTSConfig = TTSConfig()) -> bool:
         """Save speech to audio file"""
         try:
             self.engine.setProperty('rate', int(200 * config.speed))
             self.engine.setProperty('volume', config.volume)
-            
+
             self.engine.save_to_file(text, output_path)
             self.engine.runAndWait()
-            
+
             return True
-            
+
         except Exception as e:
-            print(f"System TTS to file failed: {e}")
+            logger.error("System TTS to file failed: %s", e)
             return False
     
     def list_voices(self) -> List[str]:
@@ -252,13 +256,16 @@ class TextToSpeech:
         if preferred_engine == TTSEngine.PIPER:
             try:
                 self.piper = PiperTTS(voice)
-                print("✓ Using Piper TTS (high quality)")
+                if get_debug_flags().voice:
+                    logger.debug("Using Piper TTS (high quality)")
             except Exception as e:
-                print(f"Piper not available ({e}), falling back to system TTS")
+                if get_debug_flags().voice:
+                    logger.debug("Piper not available (%s), falling back to system TTS", e)
                 self.system_tts = SystemTTS()
         else:
             self.system_tts = SystemTTS()
-            print("✓ Using system TTS")
+            if get_debug_flags().voice:
+                logger.debug("Using system TTS")
     
     def speak(self, text: str, config: Optional[TTSConfig] = None) -> bool:
         """
@@ -281,7 +288,8 @@ class TextToSpeech:
             if self.piper.speak(text, config):
                 return True
             # Piper failed, try system TTS
-            print("Piper failed, falling back to system TTS")
+            if get_debug_flags().voice:
+                logger.debug("Piper failed, falling back to system TTS")
             if not self.system_tts:
                 self.system_tts = SystemTTS()
         

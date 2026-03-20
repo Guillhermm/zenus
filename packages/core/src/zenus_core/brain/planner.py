@@ -11,6 +11,7 @@ from zenus_core.tools.privilege import PrivilegeTier, check_privilege
 from zenus_core.safety.policy import check_step, SafetyError
 from zenus_core.brain.llm.schemas import IntentIR
 from zenus_core.execution.error_handler import get_error_handler
+from zenus_core.debug import get_debug_flags
 
 
 def execute_plan(
@@ -68,7 +69,8 @@ def execute_plan(
             pass
         except Exception as e:
             # Parallel execution failed, fall back to sequential
-            print(f"  [Parallel execution failed, using sequential: {e}]")
+            if get_debug_flags().execution:
+                print(f"  [Parallel execution failed, using sequential: {e}]")
     
     # Sequential execution (fallback or by choice)
     results = []
@@ -112,7 +114,8 @@ def execute_plan(
         # Execute with error recovery
         try:
             result = action(**step.args)
-            print(f"  Done: {step.tool}.{step.action}: {result}")
+            if get_debug_flags().execution:
+                print(f"  Done: {step.tool}.{step.action}: {result}")
             
             if logger:
                 logger.log_step_result(step.tool, step.action, str(result), True)

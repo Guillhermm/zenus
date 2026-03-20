@@ -113,10 +113,37 @@ search:
   # Leave empty to use the key-free multi-source fallback.
   brave_api_key:            # or set BRAVE_SEARCH_API_KEY env var
 
-  # Show query category, source breakdown, and raw results before the
-  # synthesised answer.  Useful for debugging search quality.
-  # Can also be enabled at runtime with: ZENUS_SEARCH_DEBUG=1
-  debug: false
+# Debug output controls
+# All flags default to false — users see clean output by default.
+# Developers can enable specific subsystems without drowning in noise.
+# Environment variable equivalents are listed next to each flag.
+debug:
+  # Master switch: enables all subsystem flags below.
+  # Runtime: ZENUS_DEBUG=1
+  enabled: false
+
+  # Routing decisions, task-complexity scores, Tree of Thoughts exploration,
+  # provider/model override notices, and intent-cache hits.
+  # Runtime: ZENUS_DEBUG_ORCHESTRATOR=1
+  orchestrator: false
+
+  # Prompt-evolution promotions and internal brain events.
+  # Runtime: ZENUS_DEBUG_BRAIN=1
+  brain: false
+
+  # Per-step execution output (tool.action: result) and
+  # parallel-to-sequential fallback notices.
+  # Runtime: ZENUS_DEBUG_EXECUTION=1
+  execution: false
+
+  # TTS/STT initialisation messages and voice pipeline internals.
+  # Runtime: ZENUS_DEBUG_VOICE=1
+  voice: false
+
+  # Search query category, source breakdown, and raw result snippets.
+  # Also enabled by legacy ZENUS_SEARCH_DEBUG for backwards compatibility.
+  # Runtime: ZENUS_DEBUG_SEARCH=1
+  search: false
 
 # Custom Settings (optional)
 custom:

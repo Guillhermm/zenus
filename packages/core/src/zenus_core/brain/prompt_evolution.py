@@ -14,10 +14,14 @@ Key innovations:
 
 import json
 import hashlib
+import logging
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from datetime import datetime
+from zenus_core.debug import get_debug_flags
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -406,8 +410,11 @@ Return JSON with: goal, steps, explanation, expected_result"""
         if improvement >= self.promotion_threshold:
             # Promote!
             new_version_id = self.promote_variant(variant_id)
-            print(f"🎉 Promoted variant {variant_id} to {new_version_id} "
-                  f"({improvement:.1%} improvement)")
+            if get_debug_flags().brain:
+                logger.debug(
+                    "Promoted variant %s → %s (%.1f%% improvement)",
+                    variant_id, new_version_id, improvement * 100,
+                )
     
     def get_statistics(self) -> Dict:
         """Get prompt evolution statistics"""
@@ -433,7 +440,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             
             return versions
         except Exception as e:
-            print(f"Warning: Failed to load prompt versions: {e}")
+            logger.warning("Failed to load prompt versions: %s", e)
             return {}
     
     def _save_versions(self):
@@ -443,7 +450,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             with open(self.versions_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"Warning: Failed to save prompt versions: {e}")
+            logger.warning("Failed to save prompt versions: %s", e)
     
     def _load_variants(self) -> Dict[str, PromptVariant]:
         """Load variants from disk"""
@@ -460,7 +467,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             
             return variants
         except Exception as e:
-            print(f"Warning: Failed to load prompt variants: {e}")
+            logger.warning("Failed to load prompt variants: %s", e)
             return {}
     
     def _save_variants(self):
@@ -470,7 +477,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             with open(self.variants_file, 'w') as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
-            print(f"Warning: Failed to save prompt variants: {e}")
+            logger.warning("Failed to save prompt variants: %s", e)
     
     def _load_active_tests(self) -> List[str]:
         """Load active tests from disk"""
@@ -481,7 +488,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             with open(self.active_tests_file) as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Warning: Failed to load active tests: {e}")
+            logger.warning("Failed to load active tests: %s", e)
             return []
     
     def _save_active_tests(self):
@@ -490,7 +497,7 @@ Return JSON with: goal, steps, explanation, expected_result"""
             with open(self.active_tests_file, 'w') as f:
                 json.dump(self.active_tests, f, indent=2)
         except Exception as e:
-            print(f"Warning: Failed to save active tests: {e}")
+            logger.warning("Failed to save active tests: %s", e)
 
 
 # Singleton instance
