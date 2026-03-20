@@ -57,9 +57,11 @@ class SearchResult:
 # ---------------------------------------------------------------------------
 
 _TEMPORAL_PATTERNS = [
-    # Sports and live events
-    r"\bscore[s]?\b", r"\bstanding[s]?\b", r"\bchampion\b", r"\bleague\b",
-    r"\bmatch\b", r"\bgame\b", r"\bfinal\b", r"\bplayoff\b",
+    # Sports and live events (singular and plural)
+    r"\bscores?\b", r"\bstandings?\b", r"\bchampion(?:ship)?\b", r"\bleagues?\b",
+    r"\bmatch(?:es)?\b", r"\bgames?\b", r"\bfinals?\b", r"\bplayoffs?\b",
+    r"\bfixtures?\b", r"\bschedules?\b", r"\bupcoming\s+(?:game|match|fixture)\b",
+    r"\bnext\s+(?:game|match|fixture)\b",
     # Software versions
     r"\blatest\s+version\b", r"\bcurrent\s+version\b", r"\brelease[d]?\b",
     r"\bchangelog\b", r"\bupdate[d]?\b", r"\bnew\s+feature\b",
@@ -67,7 +69,7 @@ _TEMPORAL_PATTERNS = [
     r"\btoday\b", r"\bthis\s+week\b", r"\bthis\s+month\b", r"\brecently\b",
     r"\bnews\b", r"\bannounce[d]?\b", r"\bbreaking\b",
     # Prices and markets
-    r"\bprice\b", r"\bstock\b", r"\bcrypto\b", r"\bbitcoin\b",
+    r"\bprice[s]?\b", r"\bstock[s]?\b", r"\bcrypto\b", r"\bbitcoin\b",
     r"\bexchange\s+rate\b", r"\bcurrency\b",
     # Weather
     r"\bweather\b", r"\bforecast\b", r"\btemperature\b",
@@ -137,7 +139,8 @@ class SearchDecisionEngine:
         """Heuristic: does the query look like it's asking for a fact?"""
         factual_starters = re.compile(
             r"^(?:what|who|when|where|which|how\s+(?:many|much|old)|is\s+there|"
-            r"does|did|has|have|can|will|are|were)\b",
+            r"does|did|has|have|can|will|are|were|could|tell\s+me|"
+            r"can\s+you|could\s+you|do\s+you\s+know|find\s+(?:me|out))\b",
             re.IGNORECASE,
         )
         return bool(factual_starters.match(query.strip()))

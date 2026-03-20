@@ -242,21 +242,27 @@ class Orchestrator:
                 label = describe_override(force_provider, _detected_model)
                 console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
 
-            # Step 0a: Web search — must run before complexity routing so that
-            # lookup/info queries are handled in oneshot Q&A instead of the
-            # iterative loop (which would spin with no useful observations).
+            # Step 0a: Web search — must run before complexity routing.
+            # A query that triggers `should_search` is inherently a lookup
+            # (sports schedules, news, prices, versions, etc.), not a multi-step
+            # execution task.  Force oneshot regardless of whether DDG returned
+            # results so the LLM answers from context (or training knowledge when
+            # no results) instead of spinning in the iterative loop.
             _pre_search_context = ""
+            _search_reason = ""
             if not force_oneshot:
                 _should_search, _search_reason = self.search_engine.should_search(user_input)
                 if _should_search:
                     _search_results = self.web_search.search(user_input)
                     _pre_search_context = format_results_for_context(_search_results)
-                    if _pre_search_context:
-                        if self.show_progress:
+                    if self.show_progress:
+                        if _pre_search_context:
                             console.print(f"[dim cyan]↳ Web search: {_search_reason}[/dim cyan]")
-                        # Search found results → this is a lookup, not a multi-step task.
-                        # Force oneshot so the LLM can answer directly from context.
-                        force_oneshot = True
+                        else:
+                            console.print(f"[dim yellow]↳ Web search attempted — no results (will answer from training data)[/dim yellow]")
+                    # Always force oneshot for search-triggered queries.
+                    # Iterative mode produces empty observations for lookups.
+                    force_oneshot = True
 
             # Step 0: Analyze task complexity (auto-detect iterative need)
             if not force_oneshot:
