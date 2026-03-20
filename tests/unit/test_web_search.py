@@ -367,81 +367,112 @@ class TestWebSearchToolInstantAnswer:
 
 
 # ---------------------------------------------------------------------------
-# WebSearchTool — _html_fallback
+# WebSearchTool — _wikipedia_search
 # ---------------------------------------------------------------------------
 
-class TestWebSearchToolHTMLFallback:
+def _make_wiki_search_resp(titles: list) -> MagicMock:
+    hits = [{"title": t, "snippet": f"Snippet for {t}"} for t in titles]
+    mock = MagicMock()
+    mock.status_code = 200
+    mock.raise_for_status.return_value = None
+    mock.json.return_value = {"query": {"search": hits}}
+    return mock
+
+
+def _make_wiki_extract_resp(pages: dict) -> MagicMock:
+    """pages: {title: extract_text}"""
+    page_data = {str(i): {"title": t, "extract": e} for i, (t, e) in enumerate(pages.items())}
+    mock = MagicMock()
+    mock.status_code = 200
+    mock.raise_for_status.return_value = None
+    mock.json.return_value = {"query": {"pages": page_data}}
+    return mock
+
+
+class TestWebSearchToolWikipedia:
     @pytest.fixture
     def tool(self):
         return WebSearchTool()
 
-    def _mock_html_response(self, html_body: str) -> MagicMock:
+    def test_wikipedia_returns_results_with_extract(self, tool):
+        search_resp = _make_wiki_search_resp(["Python (programming language)"])
+        extract_resp = _make_wiki_extract_resp({"Python (programming language)": "Python is a high-level language."})
+        with patch.object(tool._session, "get", side_effect=[search_resp, extract_resp]):
+            results = tool._wikipedia_search("python language", max_results=5)
+        assert len(results) == 1
+        assert results[0].title == "Python (programming language)"
+        assert "Python is a high-level language." in results[0].snippet
+        assert results[0].source == "wikipedia"
+
+    def test_wikipedia_url_uses_title(self, tool):
+        search_resp = _make_wiki_search_resp(["Test Title"])
+        extract_resp = _make_wiki_extract_resp({"Test Title": "Some content."})
+        with patch.object(tool._session, "get", side_effect=[search_resp, extract_resp]):
+            results = tool._wikipedia_search("test", max_results=5)
+        assert "wikipedia.org/wiki/Test_Title" in results[0].url
+
+    def test_wikipedia_empty_search_returns_empty(self, tool):
         mock = MagicMock()
         mock.status_code = 200
-        mock.text = html_body
         mock.raise_for_status.return_value = None
-        return mock
+        mock.json.return_value = {"query": {"search": []}}
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._wikipedia_search("xyzzy12345", max_results=5)
+        assert results == []
 
-    def test_html_results_extracted(self, tool):
-        html_body = """
-        <a class="result__a" href="#">Python language</a>
-        <a class="result__snippet" href="#">A versatile programming language.</a>
-        <span class="result__url">python.org</span>
-        """
-        with patch.object(tool._session, "get", return_value=self._mock_html_response(html_body)):
-            results = tool._html_fallback("python", max_results=5)
-        assert len(results) >= 1
-        assert all(r.source == "duckduckgo:html" for r in results)
-
-    def test_html_failure_returns_empty(self, tool):
+    def test_wikipedia_search_failure_returns_empty(self, tool):
         with patch.object(tool._session, "get", side_effect=Exception("timeout")):
-            results = tool._html_fallback("query", max_results=5)
+            results = tool._wikipedia_search("query", max_results=5)
         assert results == []
 
-    def test_html_no_results_in_page(self, tool):
-        html_body = "<html><body><p>No results found.</p></body></html>"
-        with patch.object(tool._session, "get", return_value=self._mock_html_response(html_body)):
-            results = tool._html_fallback("obscure query", max_results=5)
-        assert results == []
+    def test_wikipedia_extract_failure_falls_back_to_snippet(self, tool):
+        search_resp = _make_wiki_search_resp(["Fallback Page"])
+        with patch.object(tool._session, "get", side_effect=[search_resp, Exception("extract failed")]):
+            results = tool._wikipedia_search("fallback", max_results=5)
+        assert len(results) == 1
+        assert results[0].source == "wikipedia:search"
 
 
 # ---------------------------------------------------------------------------
-# WebSearchTool — search() fallback logic
+# WebSearchTool — search() ordering (Wikipedia primary, DDG secondary)
 # ---------------------------------------------------------------------------
 
 class TestWebSearchFallback:
-    def test_falls_back_to_html_when_instant_answer_empty(self):
+    def test_wikipedia_is_tried_first(self):
         tool = WebSearchTool()
-        html_results = [SearchResult(title="T", url="u", snippet="s", source="duckduckgo:html")]
-
-        with patch.object(tool, "_instant_answer", return_value=[]) as mock_ia, \
-             patch.object(tool, "_html_fallback", return_value=html_results) as mock_html:
+        wiki_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
+        with patch.object(tool, "_wikipedia_search", return_value=wiki_results) as mock_wiki, \
+             patch.object(tool, "_instant_answer", return_value=[]) as mock_ddg:
             results = tool.search("query")
+        mock_wiki.assert_called_once()
+        assert results == wiki_results
 
-        mock_ia.assert_called_once()
-        mock_html.assert_called_once()
-        assert results == html_results
-
-    def test_does_not_fall_back_when_instant_answer_has_results(self):
+    def test_ddg_fills_remaining_slots(self):
         tool = WebSearchTool()
-        ia_results = [SearchResult(title="T", url="u", snippet="s", source="duckduckgo:abstract")]
+        wiki_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
+        ddg_results = [SearchResult(title="D", url="u", snippet="s", source="duckduckgo:abstract")]
+        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
+             patch.object(tool, "_instant_answer", return_value=ddg_results) as mock_ddg:
+            results = tool.search("query", max_results=5)
+        mock_ddg.assert_called_once_with("query", 4)  # 5 - 1 wiki result = 4 remaining
+        assert len(results) == 2
 
-        with patch.object(tool, "_instant_answer", return_value=ia_results) as mock_ia, \
-             patch.object(tool, "_html_fallback", return_value=[]) as mock_html:
-            results = tool.search("query")
-
-        mock_ia.assert_called_once()
-        mock_html.assert_not_called()
-        assert results == ia_results
-
-    def test_search_passes_max_results(self):
+    def test_ddg_not_called_when_wikipedia_fills_quota(self):
         tool = WebSearchTool()
-        with patch.object(tool, "_instant_answer", return_value=[]) as mock_ia, \
-             patch.object(tool, "_html_fallback", return_value=[]) as mock_html:
-            tool.search("query", max_results=3)
+        wiki_results = [SearchResult(title=f"W{i}", url="u", snippet="s", source="wikipedia") for i in range(5)]
+        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
+             patch.object(tool, "_instant_answer") as mock_ddg:
+            results = tool.search("query", max_results=5)
+        mock_ddg.assert_not_called()
+        assert len(results) == 5
 
-        mock_ia.assert_called_once_with("query", 3)
-        mock_html.assert_called_once_with("query", 3)
+    def test_search_respects_max_results(self):
+        tool = WebSearchTool()
+        wiki_results = [SearchResult(title=f"W{i}", url="u", snippet="s", source="wikipedia") for i in range(10)]
+        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
+             patch.object(tool, "_instant_answer", return_value=[]):
+            results = tool.search("query", max_results=3)
+        assert len(results) == 3
 
 
 # ---------------------------------------------------------------------------

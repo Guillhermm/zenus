@@ -15,15 +15,15 @@ Zenus automatically decides when to search the web based on three signals:
 The user never has to ask Zenus to search — it happens transparently and the
 results are injected into the LLM context before intent translation.
 
-Search backend:
-  Primary:  DuckDuckGo Instant Answer API (free, no key)
-  Fallback: DuckDuckGo HTML scraping via stdlib html.parser
+Search backends (tried in order, all free, no API key):
+  1. Wikipedia Search + Extract API  — reliable, structured, up-to-date
+  2. DuckDuckGo Instant Answer API   — calculator, unit conversions, Wikipedia
+     abstracts; DDG HTML is intentionally skipped (blocked in server envs)
 """
 
 from __future__ import annotations
 
 import html
-import html.parser
 import json
 import logging
 import re
@@ -146,35 +146,6 @@ class SearchDecisionEngine:
         return bool(factual_starters.match(query.strip()))
 
 
-# ---------------------------------------------------------------------------
-# HTML snippet extractor for fallback scraping
-# ---------------------------------------------------------------------------
-
-class _SnippetExtractor(html.parser.HTMLParser):
-    """Extract visible text from a small HTML fragment."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._text: List[str] = []
-        self._skip = False
-
-    def handle_starttag(self, tag: str, attrs) -> None:
-        if tag in ("script", "style"):
-            self._skip = True
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style"):
-            self._skip = False
-
-    def handle_data(self, data: str) -> None:
-        if not self._skip:
-            stripped = data.strip()
-            if stripped:
-                self._text.append(stripped)
-
-    def text(self) -> str:
-        return " ".join(self._text)
-
 
 # ---------------------------------------------------------------------------
 # WebSearchTool
@@ -182,27 +153,33 @@ class _SnippetExtractor(html.parser.HTMLParser):
 
 class WebSearchTool(Tool):
     """
-    Perform web searches via DuckDuckGo (no API key required).
+    Perform web searches without any API key.
 
-    Registered in the tool registry but also used directly by the orchestrator
+    Backends (tried in order):
+      1. Wikipedia Search + Extract — reliable for entities, events, topics
+      2. DuckDuckGo Instant Answer  — calculator answers, Wikipedia abstracts
+
+    Registered in the tool registry and used directly by the orchestrator
     for transparent context injection.  Risk level 0 (read-only).
     """
 
     name = "WebSearch"
 
-    def __init__(self, timeout: float = 8.0) -> None:
+    _WIKIPEDIA_UA = "Zenus/1.0 (intent-driven OS assistant; https://github.com/Guillhermm/zenus)"
+    _WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
+    _DDG_API = "https://api.duckduckgo.com/"
+
+    def __init__(self, timeout: float = 10.0) -> None:
         self._timeout = timeout
         self._session = requests.Session()
-        self._session.headers.update({
-            "User-Agent": "Zenus/1.0 (intent-driven OS assistant; +https://github.com/Guillhermm/zenus)"
-        })
+        self._session.headers.update({"User-Agent": self._WIKIPEDIA_UA})
 
     # ------------------------------------------------------------------
     # Tool protocol
     # ------------------------------------------------------------------
 
     def dry_run(self, query: str, max_results: int = 5) -> str:
-        return f"Would search DuckDuckGo for: {query!r} (up to {max_results} results)"
+        return f"Would search Wikipedia + DuckDuckGo for: {query!r} (up to {max_results} results)"
 
     def execute(self, query: str, max_results: int = 5) -> str:
         results = self.search(query, max_results)
@@ -214,12 +191,110 @@ class WebSearchTool(Tool):
 
     def search(self, query: str, max_results: int = 5) -> List[SearchResult]:
         """
-        Search the web for *query* and return up to *max_results* results.
-        Falls back to HTML scraping if the Instant Answer API returns nothing.
+        Search for *query* using Wikipedia (primary) then DDG Instant Answer
+        (secondary).  Returns up to *max_results* SearchResult objects.
         """
-        results = self._instant_answer(query, max_results)
-        if not results:
-            results = self._html_fallback(query, max_results)
+        results: List[SearchResult] = []
+
+        # 1. Wikipedia search + extract
+        results.extend(self._wikipedia_search(query, max_results))
+
+        # 2. DDG Instant Answer for anything not covered by Wikipedia
+        if len(results) < max_results:
+            results.extend(self._instant_answer(query, max_results - len(results)))
+
+        return results[:max_results]
+
+    # ------------------------------------------------------------------
+    # Internal: Wikipedia Search + Extract API
+    # ------------------------------------------------------------------
+
+    def _wikipedia_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """
+        Full-text search on Wikipedia followed by article extract fetch.
+        Returns one SearchResult per article (title + intro paragraph).
+        """
+        try:
+            # Step 1: full-text search
+            search_resp = self._session.get(
+                self._WIKIPEDIA_API,
+                params={
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": query,
+                    "format": "json",
+                    "srlimit": max_results,
+                    "srprop": "snippet",
+                },
+                timeout=self._timeout,
+            )
+            search_resp.raise_for_status()
+            search_data = search_resp.json()
+        except Exception as exc:
+            logger.debug("Wikipedia search failed: %s", exc)
+            return []
+
+        search_hits = search_data.get("query", {}).get("search", [])
+        if not search_hits:
+            return []
+
+        titles = [h["title"] for h in search_hits[:max_results]]
+
+        # Step 2: fetch extracts for all matched titles in one request
+        try:
+            extract_resp = self._session.get(
+                self._WIKIPEDIA_API,
+                params={
+                    "action": "query",
+                    "titles": "|".join(titles),
+                    "prop": "extracts",
+                    "exintro": "1",
+                    "explaintext": "1",
+                    "exsentences": "5",
+                    "format": "json",
+                },
+                timeout=self._timeout,
+            )
+            extract_resp.raise_for_status()
+            extract_data = extract_resp.json()
+        except Exception as exc:
+            logger.debug("Wikipedia extract fetch failed: %s", exc)
+            # Fall back to the search snippet only
+            results = []
+            for h in search_hits[:max_results]:
+                clean = re.sub(r"<[^>]+>", "", h.get("snippet", ""))
+                if clean:
+                    results.append(SearchResult(
+                        title=h["title"],
+                        url=f"https://en.wikipedia.org/wiki/{quote_plus(h['title'].replace(' ', '_'))}",
+                        snippet=html.unescape(clean)[:300],
+                        source="wikipedia:search",
+                    ))
+            return results
+
+        # Build title → extract map
+        pages = extract_data.get("query", {}).get("pages", {})
+        extract_map: dict = {}
+        for page in pages.values():
+            t = page.get("title", "")
+            e = page.get("extract", "").strip()
+            if t and e:
+                extract_map[t] = e
+
+        results: List[SearchResult] = []
+        for h in search_hits[:max_results]:
+            title = h["title"]
+            extract = extract_map.get(title, "")
+            if not extract:
+                # Use search snippet as fallback
+                extract = html.unescape(re.sub(r"<[^>]+>", "", h.get("snippet", "")))
+            if extract:
+                results.append(SearchResult(
+                    title=title,
+                    url=f"https://en.wikipedia.org/wiki/{quote_plus(title.replace(' ', '_'))}",
+                    snippet=extract[:400],
+                    source="wikipedia",
+                ))
         return results
 
     # ------------------------------------------------------------------
@@ -227,16 +302,15 @@ class WebSearchTool(Tool):
     # ------------------------------------------------------------------
 
     def _instant_answer(self, query: str, max_results: int) -> List[SearchResult]:
-        url = "https://api.duckduckgo.com/"
-        params = {
-            "q": query,
-            "format": "json",
-            "no_html": "1",
-            "skip_disambig": "1",
-        }
+        """DuckDuckGo Instant Answer — good for calculator/unit/simple facts."""
         try:
-            resp = self._session.get(url, params=params, timeout=self._timeout)
-            resp.raise_for_status()
+            resp = self._session.get(
+                self._DDG_API,
+                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+                timeout=self._timeout,
+            )
+            if resp.status_code != 200:
+                return []
             data = resp.json()
         except Exception as exc:
             logger.debug("DDG Instant Answer API failed: %s", exc)
@@ -244,7 +318,6 @@ class WebSearchTool(Tool):
 
         results: List[SearchResult] = []
 
-        # Abstract (main answer)
         if data.get("AbstractText"):
             results.append(SearchResult(
                 title=data.get("Heading", query),
@@ -253,7 +326,6 @@ class WebSearchTool(Tool):
                 source="duckduckgo:abstract",
             ))
 
-        # Answer box (e.g. calculator, unit conversions)
         if data.get("Answer") and len(results) < max_results:
             results.append(SearchResult(
                 title="Answer",
@@ -262,7 +334,6 @@ class WebSearchTool(Tool):
                 source="duckduckgo:answer",
             ))
 
-        # Related topics
         for topic in data.get("RelatedTopics", []):
             if len(results) >= max_results:
                 break
@@ -275,66 +346,6 @@ class WebSearchTool(Tool):
                 ))
 
         return results
-
-    # ------------------------------------------------------------------
-    # Internal: HTML fallback scraping
-    # ------------------------------------------------------------------
-
-    def _html_fallback(self, query: str, max_results: int) -> List[SearchResult]:
-        """Scrape DuckDuckGo HTML search results as fallback."""
-        url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
-        try:
-            resp = self._session.get(url, timeout=self._timeout)
-            resp.raise_for_status()
-            body = resp.text
-        except Exception as exc:
-            logger.debug("DDG HTML fallback failed: %s", exc)
-            return []
-
-        results: List[SearchResult] = []
-
-        # DDG's HTML lite structure has changed over time.  Try several known
-        # patterns in order of preference so the scraper stays resilient.
-        def _find_blocks(pattern: str) -> List[str]:
-            return re.findall(pattern, body, re.DOTALL | re.IGNORECASE)
-
-        # Snippet candidates — closing tag varies (<a> or <span>)
-        result_blocks = (
-            _find_blocks(r'class="result__snippet"[^>]*>(.*?)</a>')
-            or _find_blocks(r'class="result__snippet"[^>]*>(.*?)</span>')
-            or _find_blocks(r'class="[^"]*snippet[^"]*"[^>]*>(.*?)</(?:a|span|div)>')
-        )
-        title_blocks = (
-            _find_blocks(r'class="result__a"[^>]*>(.*?)</a>')
-            or _find_blocks(r'class="[^"]*result[^"]*a[^"]*"[^>]*>(.*?)</a>')
-        )
-        url_blocks = (
-            _find_blocks(r'class="result__url"[^>]*>(.*?)</span>')
-            or _find_blocks(r'class="result__url"[^>]*>(.*?)</a>')
-        )
-
-        for i in range(min(max_results, len(result_blocks))):
-            extractor = _SnippetExtractor()
-            extractor.feed(result_blocks[i])
-            snippet = html.unescape(extractor.text())[:300]
-
-            title_ext = _SnippetExtractor()
-            title_ext.feed(title_blocks[i] if i < len(title_blocks) else "")
-            title = html.unescape(title_ext.text())
-
-            url_text = ""
-            if i < len(url_blocks):
-                url_ext = _SnippetExtractor()
-                url_ext.feed(url_blocks[i])
-                url_text = html.unescape(url_ext.text()).strip()
-
-            if snippet:
-                results.append(SearchResult(
-                    title=title or query,
-                    url=url_text,
-                    snippet=snippet,
-                    source="duckduckgo:html",
-                ))
 
         return results
 
