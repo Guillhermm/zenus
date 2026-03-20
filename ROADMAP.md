@@ -609,4 +609,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-03-19 (v1.1.0 — Knowledge Graph, Q&A mode, dynamic execution summary, autonomous web search)*
+*Last updated: 2026-03-20 (v1.1.0 — Brave Search primary backend + 7-source parallel fallback; orchestrator web search restructured to run before routing; SearchConfig added to schema)*

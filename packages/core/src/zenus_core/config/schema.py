@@ -104,6 +104,14 @@ class FeaturesConfig(BaseModel):
     data_visualization: bool = Field(default=True, description="Enable Data Visualization")
 
 
+class SearchConfig(BaseModel):
+    """Web search configuration"""
+    brave_api_key: Optional[str] = Field(
+        default=None,
+        description="Brave Search API key — free tier at brave.com/search/api (2,000 req/month)"
+    )
+
+
 class ZenusConfig(BaseModel):
     """
     Main Zenus configuration
@@ -135,7 +143,10 @@ class ZenusConfig(BaseModel):
     
     # Features
     features: FeaturesConfig = Field(default_factory=FeaturesConfig)
-    
+
+    # Search
+    search: SearchConfig = Field(default_factory=SearchConfig)
+
     # Custom settings
     custom: Dict[str, Any] = Field(default_factory=dict, description="Custom settings")
 

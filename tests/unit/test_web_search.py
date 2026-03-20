@@ -233,11 +233,19 @@ class TestFormatResultsForContext:
 # ---------------------------------------------------------------------------
 
 class TestWebSearchToolDryRun:
-    def test_dry_run_message(self):
+    def test_dry_run_message_no_key(self):
         tool = WebSearchTool()
+        tool._brave_key = ""
         result = tool.dry_run("python async")
         assert "python async" in result
-        assert "DuckDuckGo" in result
+        assert "multi-source fallback" in result
+
+    def test_dry_run_message_with_brave_key(self):
+        tool = WebSearchTool()
+        tool._brave_key = "test-key"
+        result = tool.dry_run("python async")
+        assert "python async" in result
+        assert "Brave Search" in result
 
     def test_dry_run_includes_max_results(self):
         tool = WebSearchTool()
@@ -291,7 +299,7 @@ class TestWebSearchToolInstantAnswer:
         assert len(results) == 1
         assert results[0].title == "Python"
         assert "Python is a programming" in results[0].snippet
-        assert results[0].source == "duckduckgo:abstract"
+        assert results[0].source == "duckduckgo"
 
     def test_answer_box_extracted(self, tool):
         data = {
@@ -301,7 +309,7 @@ class TestWebSearchToolInstantAnswer:
         }
         with patch.object(tool._session, "get", return_value=self._mock_response(data)):
             results = tool._instant_answer("6 times 7", max_results=5)
-        assert any(r.source == "duckduckgo:answer" for r in results)
+        assert any(r.source == "duckduckgo" for r in results)
         assert any("42" in r.snippet for r in results)
 
     def test_related_topics_extracted(self, tool):
@@ -315,7 +323,7 @@ class TestWebSearchToolInstantAnswer:
         with patch.object(tool._session, "get", return_value=self._mock_response(data)):
             results = tool._instant_answer("web frameworks", max_results=5)
         assert len(results) == 2
-        assert all(r.source == "duckduckgo:related" for r in results)
+        assert all(r.source == "duckduckgo" for r in results)
 
     def test_max_results_respected(self, tool):
         data = {
@@ -367,111 +375,271 @@ class TestWebSearchToolInstantAnswer:
 
 
 # ---------------------------------------------------------------------------
-# WebSearchTool — _wikipedia_search
+# WebSearchTool — _brave_search
 # ---------------------------------------------------------------------------
-
-def _make_wiki_search_resp(titles: list) -> MagicMock:
-    hits = [{"title": t, "snippet": f"Snippet for {t}"} for t in titles]
-    mock = MagicMock()
-    mock.status_code = 200
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = {"query": {"search": hits}}
-    return mock
-
-
-def _make_wiki_extract_resp(pages: dict) -> MagicMock:
-    """pages: {title: extract_text}"""
-    page_data = {str(i): {"title": t, "extract": e} for i, (t, e) in enumerate(pages.items())}
-    mock = MagicMock()
-    mock.status_code = 200
-    mock.raise_for_status.return_value = None
-    mock.json.return_value = {"query": {"pages": page_data}}
-    return mock
-
-
-class TestWebSearchToolWikipedia:
-    @pytest.fixture
-    def tool(self):
-        return WebSearchTool()
-
-    def test_wikipedia_returns_results_with_extract(self, tool):
-        search_resp = _make_wiki_search_resp(["Python (programming language)"])
-        extract_resp = _make_wiki_extract_resp({"Python (programming language)": "Python is a high-level language."})
-        with patch.object(tool._session, "get", side_effect=[search_resp, extract_resp]):
-            results = tool._wikipedia_search("python language", max_results=5)
-        assert len(results) == 1
-        assert results[0].title == "Python (programming language)"
-        assert "Python is a high-level language." in results[0].snippet
-        assert results[0].source == "wikipedia"
-
-    def test_wikipedia_url_uses_title(self, tool):
-        search_resp = _make_wiki_search_resp(["Test Title"])
-        extract_resp = _make_wiki_extract_resp({"Test Title": "Some content."})
-        with patch.object(tool._session, "get", side_effect=[search_resp, extract_resp]):
-            results = tool._wikipedia_search("test", max_results=5)
-        assert "wikipedia.org/wiki/Test_Title" in results[0].url
-
-    def test_wikipedia_empty_search_returns_empty(self, tool):
+class TestBraveSearch:
+    def _make_brave_resp(self, items):
         mock = MagicMock()
         mock.status_code = 200
         mock.raise_for_status.return_value = None
+        mock.json.return_value = {"web": {"results": items}}
+        return mock
+
+    def test_brave_returns_results(self):
+        tool = WebSearchTool()
+        tool._brave_key = "test-key"
+        items = [{"title": "T1", "url": "https://t1.com", "description": "Desc 1"},
+                 {"title": "T2", "url": "https://t2.com", "description": "Desc 2"}]
+        with patch.object(tool._session, "get", return_value=self._make_brave_resp(items)):
+            results = tool._brave_search("test", 5)
+        assert len(results) == 2
+        assert results[0].source == "brave"
+        assert results[0].title == "T1"
+
+    def test_brave_respects_max_results(self):
+        tool = WebSearchTool()
+        tool._brave_key = "key"
+        items = [{"title": f"T{i}", "url": f"https://t{i}.com", "description": "d"} for i in range(10)]
+        with patch.object(tool._session, "get", return_value=self._make_brave_resp(items)):
+            results = tool._brave_search("test", 3)
+        assert len(results) == 3
+
+    def test_brave_returns_empty_on_http_error(self):
+        tool = WebSearchTool()
+        tool._brave_key = "key"
+        with patch.object(tool._session, "get", side_effect=Exception("timeout")):
+            results = tool._brave_search("test", 5)
+        assert results == []
+
+    def test_brave_sends_api_key_header(self):
+        tool = WebSearchTool()
+        tool._brave_key = "my-secret-key"
+        with patch.object(tool._session, "get", return_value=self._make_brave_resp([])) as mock_get:
+            tool._brave_search("test", 5)
+        call_kwargs = mock_get.call_args
+        headers = call_kwargs[1].get("headers", {})
+        assert headers.get("X-Subscription-Token") == "my-secret-key"
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _hackernews_search
+# ---------------------------------------------------------------------------
+class TestHackerNewsSearch:
+    def test_returns_results(self):
+        tool = WebSearchTool()
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"hits": [
+            {"title": "HN Post", "url": "https://example.com", "story_text": "Story text", "objectID": "123"}
+        ]}
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._hackernews_search("test", 5)
+        assert len(results) == 1
+        assert results[0].source == "hackernews"
+        assert results[0].title == "HN Post"
+
+    def test_uses_hn_url_when_no_url(self):
+        tool = WebSearchTool()
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"hits": [{"title": "Post", "url": None, "objectID": "999"}]}
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._hackernews_search("test", 5)
+        assert "999" in results[0].url
+
+    def test_returns_empty_on_failure(self):
+        tool = WebSearchTool()
+        with patch.object(tool._session, "get", side_effect=Exception("err")):
+            assert tool._hackernews_search("q", 5) == []
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _github_search
+# ---------------------------------------------------------------------------
+class TestGitHubSearch:
+    def test_returns_repos(self):
+        tool = WebSearchTool()
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"items": [
+            {"full_name": "user/repo", "html_url": "https://github.com/user/repo",
+             "description": "A repo", "stargazers_count": 100, "language": "Python"}
+        ]}
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._github_search("test", 5)
+        assert len(results) == 1
+        assert results[0].source == "github"
+        assert "★100" in results[0].snippet
+
+    def test_returns_empty_on_failure(self):
+        tool = WebSearchTool()
+        with patch.object(tool._session, "get", side_effect=Exception("err")):
+            assert tool._github_search("q", 5) == []
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _arxiv_search
+# ---------------------------------------------------------------------------
+class TestArxivSearch:
+    def test_parses_atom_xml(self):
+        tool = WebSearchTool()
+        xml = """<?xml version="1.0"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <entry>
+            <title>Paper Title</title>
+            <summary>Abstract text here.</summary>
+            <link rel="alternate" href="https://arxiv.org/abs/1234.5678"/>
+          </entry>
+        </feed>"""
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.text = xml
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._arxiv_search("test", 5)
+        assert len(results) == 1
+        assert results[0].title == "Paper Title"
+        assert results[0].source == "arxiv"
+
+    def test_returns_empty_on_failure(self):
+        tool = WebSearchTool()
+        with patch.object(tool._session, "get", side_effect=Exception("err")):
+            assert tool._arxiv_search("q", 5) == []
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _reddit_search
+# ---------------------------------------------------------------------------
+class TestRedditSearch:
+    def test_returns_posts(self):
+        tool = WebSearchTool()
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"data": {"children": [
+            {"data": {"title": "Post Title", "selftext": "Some text",
+                      "permalink": "/r/test/123", "subreddit": "test"}}
+        ]}}
+        with patch.object(tool._session, "get", return_value=mock):
+            results = tool._reddit_search("test", 5)
+        assert len(results) == 1
+        assert results[0].source == "reddit"
+        assert "r/test" in results[0].snippet
+
+    def test_returns_empty_on_failure(self):
+        tool = WebSearchTool()
+        with patch.object(tool._session, "get", side_effect=Exception("err")):
+            assert tool._reddit_search("q", 5) == []
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _wikipedia_search
+# ---------------------------------------------------------------------------
+class TestWikipediaSearch:
+    def _make_search_resp(self, titles):
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"query": {"search": [{"title": t, "snippet": f"snip {t}"} for t in titles]}}
+        return mock
+
+    def _make_extract_resp(self, pages):
+        page_data = {str(i): {"title": t, "extract": e} for i, (t, e) in enumerate(pages.items())}
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
+        mock.json.return_value = {"query": {"pages": page_data}}
+        return mock
+
+    def test_returns_results_with_extract(self):
+        tool = WebSearchTool()
+        s = self._make_search_resp(["Python (programming language)"])
+        e = self._make_extract_resp({"Python (programming language)": "Python is a language."})
+        with patch.object(tool._session, "get", side_effect=[s, e]):
+            results = tool._wikipedia_search("python", 5)
+        assert len(results) == 1
+        assert results[0].source == "wikipedia"
+        assert "Python is a language." in results[0].snippet
+
+    def test_empty_search_returns_empty(self):
+        tool = WebSearchTool()
+        mock = MagicMock()
+        mock.raise_for_status.return_value = None
         mock.json.return_value = {"query": {"search": []}}
         with patch.object(tool._session, "get", return_value=mock):
-            results = tool._wikipedia_search("xyzzy12345", max_results=5)
-        assert results == []
+            assert tool._wikipedia_search("xyzzy", 5) == []
 
-    def test_wikipedia_search_failure_returns_empty(self, tool):
-        with patch.object(tool._session, "get", side_effect=Exception("timeout")):
-            results = tool._wikipedia_search("query", max_results=5)
-        assert results == []
-
-    def test_wikipedia_extract_failure_falls_back_to_snippet(self, tool):
-        search_resp = _make_wiki_search_resp(["Fallback Page"])
-        with patch.object(tool._session, "get", side_effect=[search_resp, Exception("extract failed")]):
-            results = tool._wikipedia_search("fallback", max_results=5)
-        assert len(results) == 1
-        assert results[0].source == "wikipedia:search"
+    def test_returns_empty_on_failure(self):
+        tool = WebSearchTool()
+        with patch.object(tool._session, "get", side_effect=Exception("err")):
+            assert tool._wikipedia_search("q", 5) == []
 
 
 # ---------------------------------------------------------------------------
-# WebSearchTool — search() ordering (Wikipedia primary, DDG secondary)
+# WebSearchTool — search() routing
 # ---------------------------------------------------------------------------
-
-class TestWebSearchFallback:
-    def test_wikipedia_is_tried_first(self):
+class TestSearchRouting:
+    def test_brave_used_when_key_set(self):
         tool = WebSearchTool()
-        wiki_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
-        with patch.object(tool, "_wikipedia_search", return_value=wiki_results) as mock_wiki, \
-             patch.object(tool, "_instant_answer", return_value=[]) as mock_ddg:
-            results = tool.search("query")
-        mock_wiki.assert_called_once()
-        assert results == wiki_results
+        tool._brave_key = "key"
+        brave_results = [SearchResult(title="B", url="u", snippet="s", source="brave")]
+        with patch.object(tool, "_brave_search", return_value=brave_results) as mock_brave, \
+             patch.object(tool, "_fallback_search") as mock_fallback:
+            results = tool.search("q")
+        mock_brave.assert_called_once()
+        mock_fallback.assert_not_called()
+        assert results == brave_results
 
-    def test_ddg_fills_remaining_slots(self):
+    def test_fallback_used_when_no_key(self):
         tool = WebSearchTool()
-        wiki_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
-        ddg_results = [SearchResult(title="D", url="u", snippet="s", source="duckduckgo:abstract")]
-        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
-             patch.object(tool, "_instant_answer", return_value=ddg_results) as mock_ddg:
-            results = tool.search("query", max_results=5)
-        mock_ddg.assert_called_once_with("query", 4)  # 5 - 1 wiki result = 4 remaining
+        tool._brave_key = ""
+        fallback_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
+        with patch.object(tool, "_brave_search") as mock_brave, \
+             patch.object(tool, "_fallback_search", return_value=fallback_results) as mock_fallback:
+            results = tool.search("q")
+        mock_brave.assert_not_called()
+        mock_fallback.assert_called_once()
+        assert results == fallback_results
+
+    def test_fallback_used_when_brave_empty(self):
+        tool = WebSearchTool()
+        tool._brave_key = "key"
+        fallback_results = [SearchResult(title="W", url="u", snippet="s", source="wikipedia")]
+        with patch.object(tool, "_brave_search", return_value=[]), \
+             patch.object(tool, "_fallback_search", return_value=fallback_results) as mock_fallback:
+            results = tool.search("q")
+        mock_fallback.assert_called_once()
+        assert results == fallback_results
+
+
+# ---------------------------------------------------------------------------
+# WebSearchTool — _fallback_search deduplication and ordering
+# ---------------------------------------------------------------------------
+class TestFallbackSearch:
+    def test_deduplicates_by_url(self):
+        tool = WebSearchTool()
+        r1 = SearchResult(title="A", url="https://same.com", snippet="s1", source="wikipedia")
+        r2 = SearchResult(title="A2", url="https://same.com", snippet="s2", source="hackernews")
+        r3 = SearchResult(title="B", url="https://different.com", snippet="s3", source="github")
+        with patch.object(tool, "_wikipedia_search", return_value=[r1]), \
+             patch.object(tool, "_hackernews_search", return_value=[r2]), \
+             patch.object(tool, "_github_search", return_value=[r3]), \
+             patch.object(tool, "_arxiv_search", return_value=[]), \
+             patch.object(tool, "_reddit_search", return_value=[]), \
+             patch.object(tool, "_rss_search", return_value=[]), \
+             patch.object(tool, "_instant_answer", return_value=[]):
+            results = tool._fallback_search("q", 10)
+        urls = [r.url for r in results]
+        assert urls.count("https://same.com") == 1
         assert len(results) == 2
 
-    def test_ddg_not_called_when_wikipedia_fills_quota(self):
+    def test_respects_max_results(self):
         tool = WebSearchTool()
-        wiki_results = [SearchResult(title=f"W{i}", url="u", snippet="s", source="wikipedia") for i in range(5)]
-        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
-             patch.object(tool, "_instant_answer") as mock_ddg:
-            results = tool.search("query", max_results=5)
-        mock_ddg.assert_not_called()
-        assert len(results) == 5
-
-    def test_search_respects_max_results(self):
-        tool = WebSearchTool()
-        wiki_results = [SearchResult(title=f"W{i}", url="u", snippet="s", source="wikipedia") for i in range(10)]
-        with patch.object(tool, "_wikipedia_search", return_value=wiki_results), \
+        many = [SearchResult(title=f"R{i}", url=f"https://r{i}.com", snippet="s", source="wikipedia") for i in range(10)]
+        with patch.object(tool, "_wikipedia_search", return_value=many), \
+             patch.object(tool, "_hackernews_search", return_value=[]), \
+             patch.object(tool, "_github_search", return_value=[]), \
+             patch.object(tool, "_arxiv_search", return_value=[]), \
+             patch.object(tool, "_reddit_search", return_value=[]), \
+             patch.object(tool, "_rss_search", return_value=[]), \
              patch.object(tool, "_instant_answer", return_value=[]):
-            results = tool.search("query", max_results=3)
+            results = tool._fallback_search("q", 3)
         assert len(results) == 3
 
 

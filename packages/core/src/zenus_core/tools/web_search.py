@@ -15,22 +15,23 @@ Zenus automatically decides when to search the web based on three signals:
 The user never has to ask Zenus to search — it happens transparently and the
 results are injected into the LLM context before intent translation.
 
-Search backends (tried in order, all free, no API key):
-  1. Wikipedia Search + Extract API  — reliable, structured, up-to-date
-  2. DuckDuckGo Instant Answer API   — calculator, unit conversions, Wikipedia
-     abstracts; DDG HTML is intentionally skipped (blocked in server envs)
+Search backends:
+  Primary:  Brave Search API (full web index, configure BRAVE_SEARCH_API_KEY)
+  Fallback: Parallel multi-source — Wikipedia, Hacker News, GitHub, arXiv,
+            Reddit, curated RSS feeds, DuckDuckGo Instant Answer.
+            No API key required for fallback mode.
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import html
-import json
 import logging
 import re
-import time
-from dataclasses import dataclass, field
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote_plus
 
 import requests
@@ -146,40 +147,64 @@ class SearchDecisionEngine:
         return bool(factual_starters.match(query.strip()))
 
 
-
 # ---------------------------------------------------------------------------
 # WebSearchTool
 # ---------------------------------------------------------------------------
 
 class WebSearchTool(Tool):
     """
-    Perform web searches without any API key.
-
-    Backends (tried in order):
-      1. Wikipedia Search + Extract — reliable for entities, events, topics
-      2. DuckDuckGo Instant Answer  — calculator answers, Wikipedia abstracts
-
-    Registered in the tool registry and used directly by the orchestrator
-    for transparent context injection.  Risk level 0 (read-only).
+    Web search with Brave Search API (primary) and a parallel multi-source
+    fallback (Wikipedia, Hacker News, GitHub, arXiv, Reddit, RSS feeds,
+    DuckDuckGo Instant Answer). No API key required for fallback mode;
+    configure BRAVE_SEARCH_API_KEY for full web search coverage.
     """
 
     name = "WebSearch"
 
-    _WIKIPEDIA_UA = "Zenus/1.0 (intent-driven OS assistant; https://github.com/Guillhermm/zenus)"
-    _WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
-    _DDG_API = "https://api.duckduckgo.com/"
+    _UA = "Zenus/1.0 (intent-driven OS assistant; https://github.com/Guillhermm/zenus)"
 
-    def __init__(self, timeout: float = 10.0) -> None:
+    # API endpoints
+    _BRAVE_API    = "https://api.search.brave.com/res/v1/web/search"
+    _HN_API       = "http://hn.algolia.com/api/v1/search"
+    _GITHUB_API   = "https://api.github.com/search/repositories"
+    _ARXIV_API    = "http://export.arxiv.org/api/query"
+    _REDDIT_API   = "https://www.reddit.com/search.json"
+    _WIKI_API     = "https://en.wikipedia.org/w/api.php"
+    _DDG_API      = "https://api.duckduckgo.com/"
+
+    # Curated RSS/Atom feeds: (url, friendly_name)
+    _RSS_FEEDS = [
+        ("https://feeds.bbci.co.uk/news/rss.xml",           "BBC News"),
+        ("https://techcrunch.com/feed/",                    "TechCrunch"),
+        ("https://www.theverge.com/rss/index.xml",          "The Verge"),
+        ("https://feeds.arstechnica.com/arstechnica/index", "Ars Technica"),
+    ]
+
+    def __init__(self, timeout: float = 8.0) -> None:
         self._timeout = timeout
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": self._WIKIPEDIA_UA})
+        self._session.headers.update({"User-Agent": self._UA})
+        self._brave_key = self._load_brave_key()
+
+    def _load_brave_key(self) -> str:
+        import os
+        key = os.environ.get("BRAVE_SEARCH_API_KEY", "")
+        if not key:
+            try:
+                from zenus_core.config.loader import get_config
+                cfg = get_config()
+                key = (cfg.search.brave_api_key or "") if hasattr(cfg, "search") else ""
+            except Exception:
+                pass
+        return key.strip()
 
     # ------------------------------------------------------------------
     # Tool protocol
     # ------------------------------------------------------------------
 
     def dry_run(self, query: str, max_results: int = 5) -> str:
-        return f"Would search Wikipedia + DuckDuckGo for: {query!r} (up to {max_results} results)"
+        mode = "Brave Search" if self._brave_key else "multi-source fallback"
+        return f"Would search ({mode}) for: {query!r} (up to {max_results} results)"
 
     def execute(self, query: str, max_results: int = 5) -> str:
         results = self.search(query, max_results)
@@ -190,119 +215,339 @@ class WebSearchTool(Tool):
     # ------------------------------------------------------------------
 
     def search(self, query: str, max_results: int = 5) -> List[SearchResult]:
-        """
-        Search for *query* using Wikipedia (primary) then DDG Instant Answer
-        (secondary).  Returns up to *max_results* SearchResult objects.
-        """
-        results: List[SearchResult] = []
-
-        # 1. Wikipedia search + extract
-        results.extend(self._wikipedia_search(query, max_results))
-
-        # 2. DDG Instant Answer for anything not covered by Wikipedia
-        if len(results) < max_results:
-            results.extend(self._instant_answer(query, max_results - len(results)))
-
-        return results[:max_results]
+        """Primary: Brave Search. Fallback: parallel multi-source."""
+        if self._brave_key:
+            results = self._brave_search(query, max_results)
+            if results:
+                return results
+        return self._fallback_search(query, max_results)
 
     # ------------------------------------------------------------------
-    # Internal: Wikipedia Search + Extract API
+    # Primary: Brave Search
     # ------------------------------------------------------------------
 
-    def _wikipedia_search(self, query: str, max_results: int) -> List[SearchResult]:
-        """
-        Full-text search on Wikipedia followed by article extract fetch.
-        Returns one SearchResult per article (title + intro paragraph).
-        """
+    def _brave_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """Brave Search API — full web index, no tracking."""
         try:
-            # Step 1: full-text search
-            search_resp = self._session.get(
-                self._WIKIPEDIA_API,
-                params={
-                    "action": "query",
-                    "list": "search",
-                    "srsearch": query,
-                    "format": "json",
-                    "srlimit": max_results,
-                    "srprop": "snippet",
+            resp = self._session.get(
+                self._BRAVE_API,
+                params={"q": query, "count": min(max_results, 20)},
+                headers={
+                    "Accept": "application/json",
+                    "Accept-Encoding": "gzip",
+                    "X-Subscription-Token": self._brave_key,
                 },
                 timeout=self._timeout,
             )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.debug("Brave Search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for item in data.get("web", {}).get("results", []):
+            snippet = item.get("description") or item.get("extra_snippets", [""])[0]
+            if item.get("title"):
+                results.append(SearchResult(
+                    title=item["title"],
+                    url=item.get("url", ""),
+                    snippet=snippet[:400],
+                    source="brave",
+                ))
+        return results[:max_results]
+
+    # ------------------------------------------------------------------
+    # Fallback: parallel multi-source
+    # ------------------------------------------------------------------
+
+    def _fallback_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """
+        Run Wikipedia, HN, GitHub, arXiv, Reddit, RSS feeds, and DDG in
+        parallel.  Results are merged in priority order and deduplicated.
+        """
+        # (priority_idx, name, callable, per_source_limit)
+        SOURCES = [
+            (0, "wikipedia",    self._wikipedia_search,    3),
+            (1, "hackernews",   self._hackernews_search,   3),
+            (2, "github",       self._github_search,       2),
+            (3, "reddit",       self._reddit_search,       2),
+            (4, "arxiv",        self._arxiv_search,        2),
+            (5, "rss",          self._rss_search,          2),
+            (6, "ddg",          self._instant_answer,      2),
+        ]
+
+        bucket: Dict[int, List[SearchResult]] = {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(SOURCES)) as ex:
+            fmap = {
+                ex.submit(fn, query, n): idx
+                for idx, _name, fn, n in SOURCES
+            }
+            done_iter = concurrent.futures.as_completed(fmap, timeout=self._timeout + 2)
+            for future in done_iter:
+                idx = fmap[future]
+                try:
+                    bucket[idx] = future.result()
+                except Exception as exc:
+                    logger.debug("Fallback source %d failed: %s", idx, exc)
+                    bucket[idx] = []
+
+        # Merge in priority order, deduplicate by URL/title
+        all_results: List[SearchResult] = []
+        for idx in range(len(SOURCES)):
+            all_results.extend(bucket.get(idx, []))
+
+        seen: set = set()
+        deduped: List[SearchResult] = []
+        for r in all_results:
+            key = r.url or r.title
+            if key not in seen:
+                seen.add(key)
+                deduped.append(r)
+
+        return deduped[:max_results]
+
+    # ------------------------------------------------------------------
+    # Source: Wikipedia
+    # ------------------------------------------------------------------
+
+    def _wikipedia_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """Wikipedia Search + Extract API."""
+        try:
+            search_resp = self._session.get(
+                self._WIKI_API,
+                params={"action": "query", "list": "search", "srsearch": query,
+                        "format": "json", "srlimit": max_results, "srprop": "snippet"},
+                timeout=self._timeout,
+            )
             search_resp.raise_for_status()
-            search_data = search_resp.json()
+            hits = search_resp.json().get("query", {}).get("search", [])
         except Exception as exc:
             logger.debug("Wikipedia search failed: %s", exc)
             return []
 
-        search_hits = search_data.get("query", {}).get("search", [])
-        if not search_hits:
+        if not hits:
             return []
 
-        titles = [h["title"] for h in search_hits[:max_results]]
-
-        # Step 2: fetch extracts for all matched titles in one request
+        titles = [h["title"] for h in hits[:max_results]]
         try:
-            extract_resp = self._session.get(
-                self._WIKIPEDIA_API,
-                params={
-                    "action": "query",
-                    "titles": "|".join(titles),
-                    "prop": "extracts",
-                    "exintro": "1",
-                    "explaintext": "1",
-                    "exsentences": "5",
-                    "format": "json",
-                },
+            ext_resp = self._session.get(
+                self._WIKI_API,
+                params={"action": "query", "titles": "|".join(titles),
+                        "prop": "extracts", "exintro": "1", "explaintext": "1",
+                        "exsentences": "5", "format": "json"},
                 timeout=self._timeout,
             )
-            extract_resp.raise_for_status()
-            extract_data = extract_resp.json()
-        except Exception as exc:
-            logger.debug("Wikipedia extract fetch failed: %s", exc)
-            # Fall back to the search snippet only
-            results = []
-            for h in search_hits[:max_results]:
-                clean = re.sub(r"<[^>]+>", "", h.get("snippet", ""))
-                if clean:
-                    results.append(SearchResult(
-                        title=h["title"],
-                        url=f"https://en.wikipedia.org/wiki/{quote_plus(h['title'].replace(' ', '_'))}",
-                        snippet=html.unescape(clean)[:300],
-                        source="wikipedia:search",
-                    ))
-            return results
-
-        # Build title → extract map
-        pages = extract_data.get("query", {}).get("pages", {})
-        extract_map: dict = {}
-        for page in pages.values():
-            t = page.get("title", "")
-            e = page.get("extract", "").strip()
-            if t and e:
-                extract_map[t] = e
+            ext_resp.raise_for_status()
+            pages = ext_resp.json().get("query", {}).get("pages", {})
+            extract_map = {p["title"]: p.get("extract", "").strip() for p in pages.values() if "title" in p}
+        except Exception:
+            extract_map = {}
 
         results: List[SearchResult] = []
-        for h in search_hits[:max_results]:
+        for h in hits[:max_results]:
             title = h["title"]
-            extract = extract_map.get(title, "")
-            if not extract:
-                # Use search snippet as fallback
-                extract = html.unescape(re.sub(r"<[^>]+>", "", h.get("snippet", "")))
-            if extract:
+            snippet = extract_map.get(title) or html.unescape(re.sub(r"<[^>]+>", "", h.get("snippet", "")))
+            if snippet:
                 results.append(SearchResult(
                     title=title,
                     url=f"https://en.wikipedia.org/wiki/{quote_plus(title.replace(' ', '_'))}",
-                    snippet=extract[:400],
+                    snippet=snippet[:400],
                     source="wikipedia",
                 ))
         return results
 
     # ------------------------------------------------------------------
-    # Internal: DuckDuckGo Instant Answer API
+    # Source: Hacker News (Algolia API)
+    # ------------------------------------------------------------------
+
+    def _hackernews_search(self, query: str, max_results: int) -> List[SearchResult]:
+        try:
+            resp = self._session.get(
+                self._HN_API,
+                params={"query": query, "hitsPerPage": max_results, "tags": "story"},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            hits = resp.json().get("hits", [])
+        except Exception as exc:
+            logger.debug("HackerNews search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for hit in hits[:max_results]:
+            title = hit.get("title", "")
+            url = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID', '')}"
+            snippet = (hit.get("story_text") or title)[:300]
+            if title:
+                results.append(SearchResult(title=title, url=url, snippet=snippet, source="hackernews"))
+        return results
+
+    # ------------------------------------------------------------------
+    # Source: GitHub repositories
+    # ------------------------------------------------------------------
+
+    def _github_search(self, query: str, max_results: int) -> List[SearchResult]:
+        try:
+            resp = self._session.get(
+                self._GITHUB_API,
+                params={"q": query, "per_page": max_results, "sort": "stars"},
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+        except Exception as exc:
+            logger.debug("GitHub search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for item in items[:max_results]:
+            desc = item.get("description") or ""
+            lang = item.get("language") or "unknown"
+            stars = item.get("stargazers_count", 0)
+            snippet = f"{desc} | ★{stars:,} | {lang}".strip(" |")
+            results.append(SearchResult(
+                title=item.get("full_name", ""),
+                url=item.get("html_url", ""),
+                snippet=snippet[:300],
+                source="github",
+            ))
+        return results
+
+    # ------------------------------------------------------------------
+    # Source: arXiv
+    # ------------------------------------------------------------------
+
+    def _arxiv_search(self, query: str, max_results: int) -> List[SearchResult]:
+        try:
+            resp = self._session.get(
+                self._ARXIV_API,
+                params={"search_query": f"all:{query}", "max_results": max_results, "sortBy": "relevance"},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+        except Exception as exc:
+            logger.debug("arXiv search failed: %s", exc)
+            return []
+
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        results: List[SearchResult] = []
+        for entry in root.findall("a:entry", ns):
+            title_el = entry.find("a:title", ns)
+            summary_el = entry.find("a:summary", ns)
+            link_el = entry.find("a:link[@rel='alternate']", ns)
+            if link_el is None:
+                link_el = entry.find("a:id", ns)
+            title = title_el.text.strip() if title_el is not None else ""
+            summary = (summary_el.text or "").strip()
+            url = (link_el.attrib.get("href") if link_el is not None else
+                   (link_el.text if link_el is not None else ""))
+            if title:
+                results.append(SearchResult(title=title, url=url or "", snippet=summary[:300], source="arxiv"))
+        return results
+
+    # ------------------------------------------------------------------
+    # Source: Reddit
+    # ------------------------------------------------------------------
+
+    def _reddit_search(self, query: str, max_results: int) -> List[SearchResult]:
+        try:
+            resp = self._session.get(
+                self._REDDIT_API,
+                params={"q": query, "limit": max_results, "sort": "relevance", "type": "link"},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            posts = resp.json().get("data", {}).get("children", [])
+        except Exception as exc:
+            logger.debug("Reddit search failed: %s", exc)
+            return []
+
+        results: List[SearchResult] = []
+        for post in posts[:max_results]:
+            p = post.get("data", {})
+            title = p.get("title", "")
+            selftext = (p.get("selftext") or "")[:200]
+            sub = p.get("subreddit", "")
+            url = f"https://reddit.com{p.get('permalink', '')}"
+            snippet = f"r/{sub} — {selftext or title}"
+            if title:
+                results.append(SearchResult(title=title, url=url, snippet=snippet[:300], source="reddit"))
+        return results
+
+    # ------------------------------------------------------------------
+    # Source: RSS/Atom feeds (curated)
+    # ------------------------------------------------------------------
+
+    def _rss_search(self, query: str, max_results: int) -> List[SearchResult]:
+        """
+        Fetch curated RSS/Atom feeds in parallel and filter items whose
+        title or description contains any query keyword.
+        """
+        keywords = {w.lower() for w in re.split(r'\W+', query) if len(w) > 3}
+        results: List[SearchResult] = []
+
+        def _fetch_feed(feed_url: str, feed_name: str) -> List[SearchResult]:
+            try:
+                resp = self._session.get(feed_url, timeout=min(self._timeout, 5))
+                resp.raise_for_status()
+                root = ET.fromstring(resp.text)
+            except Exception:
+                return []
+
+            feed_results: List[SearchResult] = []
+            # Atom feeds use {namespace}entry; RSS uses item
+            ns_atom = "http://www.w3.org/2005/Atom"
+            entries = root.findall(f"{{{ns_atom}}}entry") or root.findall(".//item")
+
+            for entry in entries:
+                # Title
+                title_el = entry.find(f"{{{ns_atom}}}title") or entry.find("title")
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                # Description / summary
+                desc_el = (entry.find(f"{{{ns_atom}}}summary") or
+                           entry.find(f"{{{ns_atom}}}content") or
+                           entry.find("description"))
+                desc = re.sub(r"<[^>]+>", "", (desc_el.text or "")).strip() if desc_el is not None else ""
+                # Link
+                link_el = entry.find(f"{{{ns_atom}}}link") or entry.find("link")
+                if link_el is not None:
+                    url = link_el.attrib.get("href") or (link_el.text or "").strip()
+                else:
+                    url = ""
+
+                # Relevance filter: at least one keyword must appear
+                combined = (title + " " + desc).lower()
+                if any(kw in combined for kw in keywords):
+                    feed_results.append(SearchResult(
+                        title=title,
+                        url=url,
+                        snippet=f"[{feed_name}] {desc[:200] or title}",
+                        source="rss",
+                    ))
+                if len(feed_results) >= max_results:
+                    break
+            return feed_results
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self._RSS_FEEDS)) as ex:
+            futs = [ex.submit(_fetch_feed, url, name) for url, name in self._RSS_FEEDS]
+            for f in concurrent.futures.as_completed(futs, timeout=self._timeout):
+                try:
+                    results.extend(f.result())
+                except Exception:
+                    pass
+
+        return results[:max_results]
+
+    # ------------------------------------------------------------------
+    # Source: DuckDuckGo Instant Answer
     # ------------------------------------------------------------------
 
     def _instant_answer(self, query: str, max_results: int) -> List[SearchResult]:
-        """DuckDuckGo Instant Answer — good for calculator/unit/simple facts."""
+        """DDG Instant Answer — good for calculator/unit/simple factual queries."""
         try:
             resp = self._session.get(
                 self._DDG_API,
@@ -313,27 +558,19 @@ class WebSearchTool(Tool):
                 return []
             data = resp.json()
         except Exception as exc:
-            logger.debug("DDG Instant Answer API failed: %s", exc)
+            logger.debug("DDG Instant Answer failed: %s", exc)
             return []
 
         results: List[SearchResult] = []
-
         if data.get("AbstractText"):
             results.append(SearchResult(
                 title=data.get("Heading", query),
                 url=data.get("AbstractURL", ""),
                 snippet=data["AbstractText"][:300],
-                source="duckduckgo:abstract",
+                source="duckduckgo",
             ))
-
         if data.get("Answer") and len(results) < max_results:
-            results.append(SearchResult(
-                title="Answer",
-                url="",
-                snippet=str(data["Answer"])[:300],
-                source="duckduckgo:answer",
-            ))
-
+            results.append(SearchResult(title="Answer", url="", snippet=str(data["Answer"])[:300], source="duckduckgo"))
         for topic in data.get("RelatedTopics", []):
             if len(results) >= max_results:
                 break
@@ -342,11 +579,8 @@ class WebSearchTool(Tool):
                     title=_first_sentence(topic["Text"]),
                     url=topic.get("FirstURL", ""),
                     snippet=topic["Text"][:200],
-                    source="duckduckgo:related",
+                    source="duckduckgo",
                 ))
-
-        return results
-
         return results
 
 
