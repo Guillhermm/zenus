@@ -51,7 +51,7 @@ from zenus_core.shell.response_generator import ResponseGenerator
 from zenus_core.shell.explain import ExplainMode
 from zenus_core.output.console import (
     print_success, print_error, print_goal,
-    print_step, console
+    print_step, print_markdown, console
 )
 from zenus_core.tools.privilege import PrivilegeTier
 from zenus_core.brain.knowledge_graph import get_knowledge_graph
@@ -290,7 +290,7 @@ class Orchestrator:
                                 "acknowledge you may not have up-to-date data."
                             )
                         answer = self.llm.ask(user_input, _synth_ctx)
-                        console.print(answer)
+                        print_markdown(answer)
                         return answer
 
             # Step 0: Analyze task complexity (auto-detect iterative need)
@@ -453,7 +453,7 @@ class Orchestrator:
                 if self.use_memory:
                     context_for_answer = self._build_context(user_input)
                 answer = self.llm.ask(user_input, context_for_answer)
-                console.print(answer)
+                print_markdown(answer)
                 return answer
 
             # Step 2.5: Analyze for potential failures (learning from past mistakes)
@@ -876,7 +876,7 @@ class Orchestrator:
                         "Answer from training knowledge and acknowledge the limitation."
                     )
                 answer = self.llm.ask(user_input, _synth_ctx)
-                console.print(answer)
+                print_markdown(answer)
                 return answer
 
             # Action query: inject context into the iterative loop.

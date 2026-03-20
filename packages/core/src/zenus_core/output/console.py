@@ -5,6 +5,7 @@ Beautiful, readable output using rich library.
 """
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.syntax import Syntax
@@ -21,6 +22,11 @@ except ImportError:
 
 
 console = Console()
+
+
+def print_markdown(text: str) -> None:
+    """Render LLM-generated text as Markdown (bold, italic, lists, code blocks…)."""
+    console.print(Markdown(text))
 
 
 def print_success(message: str):
