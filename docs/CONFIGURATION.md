@@ -1,7 +1,7 @@
 # Configuration Guide
 
-**Status**: ✅ Complete | **Phase**: Foundation Hardening  
-**Version**: 0.5.1
+**Status**: ✅ Complete | **Phase**: Foundation Hardening
+**Version**: 1.1.0
 
 Modern configuration system with YAML support, profiles, and hot-reload.
 
@@ -45,7 +45,7 @@ $ZENUS_CONFIG               # Custom location
 
 ```yaml
 # config.yaml
-version: "0.5.1"
+version: "1.1.0"
 profile: dev  # dev, staging, production
 
 llm:
@@ -262,6 +262,50 @@ features:
   data_visualization: true       # Stable
 ```
 
+### Web Search
+
+Zenus automatically searches the web for time-sensitive queries — sports schedules, software versions, news, prices, and anything where the LLM's training data may be stale. No configuration required: a key-free multi-source fallback is always active.
+
+```yaml
+search:
+  # Brave Search API key for full web index coverage.
+  # Free tier: 2,000 req/month — https://brave.com/search/api
+  # Leave empty to use the key-free multi-source fallback.
+  brave_api_key:            # or set BRAVE_SEARCH_API_KEY env var
+
+  # Show query category, source breakdown, and raw results before the
+  # synthesised answer. Useful for debugging search quality.
+  # Can also be enabled at runtime with: ZENUS_SEARCH_DEBUG=1
+  debug: false
+```
+
+**How it works:**
+
+1. `SearchDecisionEngine` decides whether the query needs a web search (temporal patterns, knowledge-gap heuristic, factual-question detection).
+2. Query is classified as `sports`, `tech`, `academic`, `news`, or `general`.
+3. Only the relevant 3–4 sources are queried in parallel (e.g. sports → Wikipedia + Reddit + RSS; tech → HackerNews + GitHub + Wikipedia + RSS).
+4. If `search.brave_api_key` is set, Brave Search is tried first (full web index); fallback sources are used if the key is absent or returns nothing.
+5. For factual lookup queries the orchestrator bypasses plan execution entirely and calls `llm.ask()` with the results — the user sees only the synthesised plain-text answer.
+
+**Priority for settings:**
+
+| Setting | Config key | Env var |
+|---|---|---|
+| Brave API key | `search.brave_api_key` | `BRAVE_SEARCH_API_KEY` |
+| Debug mode | `search.debug` | `ZENUS_SEARCH_DEBUG=1` |
+
+Config values take precedence over env vars. Both can be used simultaneously (config for persistent settings, env for temporary overrides).
+
+**Fallback sources by query type:**
+
+| Category | Sources |
+|---|---|
+| sports | Wikipedia, Reddit, RSS (BBC) |
+| tech | HackerNews, GitHub, Wikipedia, RSS (TechCrunch/Verge) |
+| academic | arXiv, Wikipedia, HackerNews |
+| news | RSS feeds, Reddit, HackerNews, DDG Instant Answer |
+| general | Wikipedia, DDG Instant Answer, RSS feeds |
+
 ---
 
 ## 🔒 Secrets Management
@@ -286,8 +330,9 @@ DEEPSEEK_API_BASE_URL=https://api.deepseek.com
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=phi3:mini
 
-# Custom
-ZENUS_API_KEY=your-custom-key
+# Web Search (optional — key-free fallback always available)
+# BRAVE_SEARCH_API_KEY=your-key-here   # https://brave.com/search/api
+# ZENUS_SEARCH_DEBUG=1                 # Show source breakdown (prefer config)
 ```
 
 ### Programmatic Access

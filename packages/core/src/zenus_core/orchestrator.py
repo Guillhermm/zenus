@@ -200,6 +200,8 @@ class Orchestrator:
         # Web search — transparent context enrichment (no API key required)
         self.web_search = WebSearchTool()
         self.search_engine = SearchDecisionEngine()
+        # Debug flag: config takes precedence, ZENUS_SEARCH_DEBUG env var as fallback
+        self._search_debug = self._load_search_debug()
     
     def execute_command(
         self,
@@ -251,7 +253,6 @@ class Orchestrator:
             # inject the results as context and continue with normal execution.
             _pre_search_context = ""
             _search_reason = ""
-            _debug_search = bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
             if not force_oneshot:
                 _should_search, _search_reason = self.search_engine.should_search(user_input)
                 if _should_search:
@@ -261,7 +262,7 @@ class Orchestrator:
                     if self.show_progress:
                         if _pre_search_context:
                             console.print(f"[dim cyan]↳ Web search: {_search_reason}[/dim cyan]")
-                            if _debug_search:
+                            if self._search_debug:
                                 console.print(f"[dim]↳ Query type: {_query_category} | {len(_search_results)} result(s)[/dim]")
                                 for _r in _search_results:
                                     console.print(f"[dim]   [{_r.source}] {_r.title}: {_r.snippet[:80]}...[/dim]")
@@ -831,7 +832,6 @@ class Orchestrator:
         # Web search injection — same gate as execute_command Step 0a.
         # Lookup queries (questions) bypass the iterative loop entirely.
         # Action queries that need current data get context injected.
-        _debug_search = bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
         should_search, search_reason = self.search_engine.should_search(user_input)
         if should_search:
             search_results = self.web_search.search(user_input)
@@ -839,7 +839,7 @@ class Orchestrator:
             if self.show_progress:
                 if search_context:
                     console.print(f"[dim cyan]↳ Web search: {search_reason}[/dim cyan]")
-                    if _debug_search:
+                    if self._search_debug:
                         _cat = self.web_search._classify_query(user_input)
                         console.print(f"[dim]↳ Query type: {_cat} | {len(search_results)} result(s)[/dim]")
                 else:
@@ -1088,6 +1088,21 @@ class Orchestrator:
             self.logger.log_error(error_msg, {"user_input": user_input})
             print_error(error_msg)
             return error_msg
+
+    @staticmethod
+    def _load_search_debug() -> bool:
+        """
+        Return True if search debug output is enabled.
+        Priority: config.yaml search.debug → ZENUS_SEARCH_DEBUG env var.
+        """
+        try:
+            from zenus_core.config.loader import get_config
+            cfg = get_config()
+            if hasattr(cfg, "search") and cfg.search.debug:
+                return True
+        except Exception:
+            pass
+        return bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
 
     def _build_context(self, user_input: str) -> str:
         """Build context string from memory and environment"""

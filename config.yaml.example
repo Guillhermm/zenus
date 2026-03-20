@@ -1,7 +1,7 @@
 # Zenus Configuration
 # Copy to ~/.zenus/config.yaml or ./zenus.yaml
 
-version: "0.5.1"
+version: "1.1.0"
 profile: dev  # dev, staging, or production
 
 # LLM Configuration
@@ -101,6 +101,22 @@ profiles:
     features:
       voice_interface: false
       multi_agent: true         # Stable features only
+
+# Web Search
+# Zenus automatically searches the web for time-sensitive queries (sports
+# schedules, software versions, news, prices…). No key needed — a
+# multi-source fallback (Wikipedia, HackerNews, GitHub, Reddit, arXiv,
+# RSS feeds, DDG) is always available.
+search:
+  # Brave Search API key for full web index coverage.
+  # Free tier: 2,000 req/month — https://brave.com/search/api
+  # Leave empty to use the key-free multi-source fallback.
+  brave_api_key:            # or set BRAVE_SEARCH_API_KEY env var
+
+  # Show query category, source breakdown, and raw results before the
+  # synthesised answer.  Useful for debugging search quality.
+  # Can also be enabled at runtime with: ZENUS_SEARCH_DEBUG=1
+  debug: false
 
 # Custom Settings (optional)
 custom:

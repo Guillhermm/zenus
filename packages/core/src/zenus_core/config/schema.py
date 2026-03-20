@@ -110,6 +110,13 @@ class SearchConfig(BaseModel):
         default=None,
         description="Brave Search API key — free tier at brave.com/search/api (2,000 req/month)"
     )
+    debug: bool = Field(
+        default=False,
+        description=(
+            "Show query category, source breakdown, and raw results before the "
+            "synthesised answer. Overridden by ZENUS_SEARCH_DEBUG env var."
+        )
+    )
 
 
 class ZenusConfig(BaseModel):
