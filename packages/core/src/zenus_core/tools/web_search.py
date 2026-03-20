@@ -151,12 +151,54 @@ class SearchDecisionEngine:
 # WebSearchTool
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Query classification patterns (used for smart source routing)
+# ---------------------------------------------------------------------------
+
+_SPORTS_QUERY_RE = re.compile(
+    r"\b(soccer|football|basketball|tennis|cricket|baseball|volleyball|golf|rugby|"
+    r"nba|nfl|mlb|nhl|nba|f1|formula\s*1|mls|premier\s*league|la\s*liga|bundesliga|serie\s*a|"
+    r"match(?:es)?|fixture|standing|champion(?:ship)?|league|playoff|tournament|"
+    r"team|club|player|coach|goal|score|half.?time|transfer|palmeiras|flamengo|"
+    r"manchester|barcelona|real\s+madrid)\b",
+    re.IGNORECASE,
+)
+
+_TECH_QUERY_RE = re.compile(
+    r"\b(software|programming|javascript|typescript|python|rust|golang|java|kotlin|swift|"
+    r"react|vue|angular|node(?:\.?js)?|docker|kubernetes|k8s|api|sdk|"
+    r"framework|library|github|gitlab|npm|pip|cargo|brew|apt|"
+    r"linux|ubuntu|debian|fedora|macos|windows|server|cloud|aws|gcp|azure|"
+    r"llm|gpt|claude|gemini|mistral|ollama|openai|anthropic)\b",
+    re.IGNORECASE,
+)
+
+_ACADEMIC_QUERY_RE = re.compile(
+    r"\b(research|paper|study|journal|published?|arxiv|"
+    r"algorithm|theorem|proof|benchmark|dataset|survey|"
+    r"machine\s+learning|deep\s+learning|neural\s+network|"
+    r"reinforcement\s+learning|natural\s+language|computer\s+vision)\b",
+    re.IGNORECASE,
+)
+
+_NEWS_QUERY_RE = re.compile(
+    r"\b(news|breaking|announc(?:e|ed)|today|this\s+week|this\s+month|"
+    r"politic(?:s|al)?|election|economy|market|inflation|recession|"
+    r"war|conflict|president|prime\s+minister|government|policy)\b",
+    re.IGNORECASE,
+)
+
+
 class WebSearchTool(Tool):
     """
     Web search with Brave Search API (primary) and a parallel multi-source
     fallback (Wikipedia, Hacker News, GitHub, arXiv, Reddit, RSS feeds,
     DuckDuckGo Instant Answer). No API key required for fallback mode;
     configure BRAVE_SEARCH_API_KEY for full web search coverage.
+
+    Fallback sources are selected based on query type (sports, tech,
+    academic, news, general) to avoid irrelevant results.
     """
 
     name = "WebSearch"
@@ -258,24 +300,75 @@ class WebSearchTool(Tool):
         return results[:max_results]
 
     # ------------------------------------------------------------------
-    # Fallback: parallel multi-source
+    # Query classification
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _classify_query(query: str) -> str:
+        """
+        Classify the query into a category for smart source routing.
+
+        Returns one of: "sports", "tech", "academic", "news", "general".
+        """
+        if _SPORTS_QUERY_RE.search(query):
+            return "sports"
+        if _ACADEMIC_QUERY_RE.search(query):
+            return "academic"
+        if _TECH_QUERY_RE.search(query):
+            return "tech"
+        if _NEWS_QUERY_RE.search(query):
+            return "news"
+        return "general"
+
+    # ------------------------------------------------------------------
+    # Fallback: parallel multi-source with smart routing
     # ------------------------------------------------------------------
 
     def _fallback_search(self, query: str, max_results: int) -> List[SearchResult]:
         """
-        Run Wikipedia, HN, GitHub, arXiv, Reddit, RSS feeds, and DDG in
-        parallel.  Results are merged in priority order and deduplicated.
+        Run a category-appropriate subset of sources in parallel.
+        Results are merged in priority order and deduplicated by URL.
+
+        Source map by category:
+          sports   → Wikipedia, Reddit, RSS
+          tech     → HackerNews, GitHub, Wikipedia, RSS
+          academic → arXiv, Wikipedia, HackerNews
+          news     → RSS, Reddit, HackerNews, DDG
+          general  → Wikipedia, DDG, RSS
         """
+        category = self._classify_query(query)
+
         # (priority_idx, name, callable, per_source_limit)
-        SOURCES = [
-            (0, "wikipedia",    self._wikipedia_search,    3),
-            (1, "hackernews",   self._hackernews_search,   3),
-            (2, "github",       self._github_search,       2),
-            (3, "reddit",       self._reddit_search,       2),
-            (4, "arxiv",        self._arxiv_search,        2),
-            (5, "rss",          self._rss_search,          2),
-            (6, "ddg",          self._instant_answer,      2),
-        ]
+        _SOURCES_BY_CATEGORY: Dict[str, list] = {
+            "sports":   [
+                (0, "wikipedia",  self._wikipedia_search,  2),
+                (1, "reddit",     self._reddit_search,     3),
+                (2, "rss",        self._rss_search,        2),
+            ],
+            "tech":     [
+                (0, "hackernews", self._hackernews_search, 3),
+                (1, "github",     self._github_search,     2),
+                (2, "wikipedia",  self._wikipedia_search,  2),
+                (3, "rss",        self._rss_search,        2),
+            ],
+            "academic": [
+                (0, "arxiv",      self._arxiv_search,      3),
+                (1, "wikipedia",  self._wikipedia_search,  2),
+                (2, "hackernews", self._hackernews_search, 2),
+            ],
+            "news":     [
+                (0, "rss",        self._rss_search,        3),
+                (1, "reddit",     self._reddit_search,     2),
+                (2, "hackernews", self._hackernews_search, 2),
+                (3, "ddg",        self._instant_answer,    1),
+            ],
+            "general":  [
+                (0, "wikipedia",  self._wikipedia_search,  3),
+                (1, "ddg",        self._instant_answer,    2),
+                (2, "rss",        self._rss_search,        2),
+            ],
+        }
+        SOURCES = _SOURCES_BY_CATEGORY.get(category, _SOURCES_BY_CATEGORY["general"])
 
         bucket: Dict[int, List[SearchResult]] = {}
 

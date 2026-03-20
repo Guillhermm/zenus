@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`orchestrator.py`**: Step 0a — web search runs before complexity routing (not after) to ensure real-time data is always injected; `force_oneshot=True` whenever search is triggered regardless of results; bypass `translate_intent` and call `llm.ask()` directly when search returns empty to prevent empty WebSearch tool loops; `execute_iterative` also injects web search context and includes `is_question` short-circuit after intent translation. Step 2.4 — Q&A short-circuit; Step 6.5 — knowledge graph ingestion after execution; final output uses `build_execution_summary` instead of static success message.
 - **`config/schema.py`**: added `SearchConfig` model (`brave_api_key: Optional[str]`) and `search: SearchConfig` field to `ZenusConfig`.
 - **`packages/core/pyproject.toml`**: removed `duckduckgo-search` dependency (blocked from server IPs; replaced by Brave + multi-source fallback).
+- **Smart fallback routing** (`tools/web_search.py`): `_classify_query` categorises each query as sports/tech/academic/news/general and `_fallback_search` runs only the relevant 3-4 sources (e.g. sports → Wikipedia + Reddit + RSS; academic → arXiv + Wikipedia + HN). Eliminates irrelevant results (Minecraft Reddit posts for soccer queries).
+- **Lookup bypass in orchestrator**: when `SearchDecisionEngine._looks_factual()` is True and search results exist, the orchestrator skips intent translation and plan execution entirely and calls `llm.ask()` directly. Users see only the synthesised plain-text answer — no raw `SearchResult` dump, no self-reflection output, no spinning WebSearch tool steps.
+- **`ZENUS_SEARCH_DEBUG=1`** (new env var): exposes query category, result count, and per-result source/title/snippet before the synthesised answer. Off by default.
 - **`memory/world_model.py`**: `get_summary()` now appends Knowledge Graph node/edge stats when the graph is non-empty.
 
 ---

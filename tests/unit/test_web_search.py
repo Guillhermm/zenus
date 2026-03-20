@@ -3,7 +3,9 @@ Unit tests for zenus_core.tools.web_search
 
 Tests cover:
 - SearchDecisionEngine: temporal patterns, knowledge gap, factual heuristic
-- WebSearchTool: DDG Instant Answer parsing, HTML fallback, dry_run, execute
+- WebSearchTool._classify_query: query type classification for smart routing
+- WebSearchTool: Brave Search, per-source fetchers, dry_run, execute
+- _fallback_search: smart routing by query category, deduplication, max_results
 - format_results_for_context: formatting and edge cases
 - _first_sentence helper
 """
@@ -23,6 +25,10 @@ from zenus_core.tools.web_search import (
     format_results_for_context,
     _first_sentence,
     _TEMPORAL_RE,
+    _SPORTS_QUERY_RE,
+    _TECH_QUERY_RE,
+    _ACADEMIC_QUERY_RE,
+    _NEWS_QUERY_RE,
 )
 
 
@@ -609,38 +615,129 @@ class TestSearchRouting:
 
 
 # ---------------------------------------------------------------------------
+# WebSearchTool — _classify_query
+# ---------------------------------------------------------------------------
+class TestQueryClassification:
+    """_classify_query routes to the right search category."""
+
+    @pytest.mark.parametrize("query,expected", [
+        ("what are next games of Palmeiras soccer team", "sports"),
+        ("NBA standings this week", "sports"),
+        ("who won the Champions League final", "sports"),
+        ("next match fixture for Barcelona", "sports"),
+        ("how to install Docker on Ubuntu", "tech"),
+        ("latest release of React framework", "tech"),
+        ("best Python library for async", "tech"),
+        ("claude LLM API usage", "tech"),
+        ("research paper on neural networks", "academic"),
+        ("arXiv survey on transformers", "academic"),
+        ("machine learning benchmark dataset", "academic"),
+        ("breaking news this week", "news"),
+        ("election results today", "news"),
+        ("what is the capital of France", "general"),
+        ("how many moons does Jupiter have", "general"),
+    ])
+    def test_classify_query(self, query, expected):
+        assert WebSearchTool._classify_query(query) == expected
+
+    def test_sports_re_matches_team_names(self):
+        assert _SPORTS_QUERY_RE.search("palmeiras match schedule") is not None
+        assert _SPORTS_QUERY_RE.search("real madrid vs barcelona") is not None
+
+    def test_tech_re_matches_dev_tools(self):
+        assert _TECH_QUERY_RE.search("kubernetes deployment yaml") is not None
+        assert _TECH_QUERY_RE.search("docker compose tutorial") is not None
+
+    def test_academic_re_matches_papers(self):
+        assert _ACADEMIC_QUERY_RE.search("arxiv paper on diffusion models") is not None
+        assert _ACADEMIC_QUERY_RE.search("deep learning benchmark") is not None
+
+    def test_news_re_matches_current_events(self):
+        assert _NEWS_QUERY_RE.search("election news today") is not None
+        assert _NEWS_QUERY_RE.search("breaking announcement") is not None
+
+    def test_academic_takes_priority_over_tech(self):
+        # "neural network" is academic; "python" alone is tech
+        assert WebSearchTool._classify_query("research paper on neural networks in python") == "academic"
+
+    def test_sports_takes_priority_over_news(self):
+        assert WebSearchTool._classify_query("breaking news on soccer match results") == "sports"
+
+
+# ---------------------------------------------------------------------------
 # WebSearchTool — _fallback_search deduplication and ordering
 # ---------------------------------------------------------------------------
 class TestFallbackSearch:
+    """Smart routing: only sources relevant to the query category are called."""
+
     def test_deduplicates_by_url(self):
+        # "python programming" → "tech" → sources: hackernews, github, wikipedia, rss
         tool = WebSearchTool()
         r1 = SearchResult(title="A", url="https://same.com", snippet="s1", source="wikipedia")
         r2 = SearchResult(title="A2", url="https://same.com", snippet="s2", source="hackernews")
         r3 = SearchResult(title="B", url="https://different.com", snippet="s3", source="github")
-        with patch.object(tool, "_wikipedia_search", return_value=[r1]), \
-             patch.object(tool, "_hackernews_search", return_value=[r2]), \
+        with patch.object(tool, "_hackernews_search", return_value=[r2]), \
              patch.object(tool, "_github_search", return_value=[r3]), \
-             patch.object(tool, "_arxiv_search", return_value=[]), \
-             patch.object(tool, "_reddit_search", return_value=[]), \
-             patch.object(tool, "_rss_search", return_value=[]), \
-             patch.object(tool, "_instant_answer", return_value=[]):
-            results = tool._fallback_search("q", 10)
+             patch.object(tool, "_wikipedia_search", return_value=[r1]), \
+             patch.object(tool, "_rss_search", return_value=[]):
+            results = tool._fallback_search("python programming library", 10)
         urls = [r.url for r in results]
         assert urls.count("https://same.com") == 1
         assert len(results) == 2
 
     def test_respects_max_results(self):
+        # Generic query → "general" → sources: wikipedia, ddg, rss
         tool = WebSearchTool()
         many = [SearchResult(title=f"R{i}", url=f"https://r{i}.com", snippet="s", source="wikipedia") for i in range(10)]
         with patch.object(tool, "_wikipedia_search", return_value=many), \
-             patch.object(tool, "_hackernews_search", return_value=[]), \
-             patch.object(tool, "_github_search", return_value=[]), \
-             patch.object(tool, "_arxiv_search", return_value=[]), \
-             patch.object(tool, "_reddit_search", return_value=[]), \
-             patch.object(tool, "_rss_search", return_value=[]), \
-             patch.object(tool, "_instant_answer", return_value=[]):
-            results = tool._fallback_search("q", 3)
+             patch.object(tool, "_instant_answer", return_value=[]), \
+             patch.object(tool, "_rss_search", return_value=[]):
+            results = tool._fallback_search("what is the capital of Brazil", 3)
         assert len(results) == 3
+
+    def test_sports_query_uses_wikipedia_reddit_rss(self):
+        # Sports category: wikipedia, reddit, rss — NOT hackernews, github, arxiv
+        tool = WebSearchTool()
+        with patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
+             patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit, \
+             patch.object(tool, "_rss_search", return_value=[]) as mock_rss, \
+             patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
+             patch.object(tool, "_github_search", return_value=[]) as mock_gh:
+            tool._fallback_search("palmeiras soccer match schedule", 5)
+        mock_wiki.assert_called_once()
+        mock_reddit.assert_called_once()
+        mock_rss.assert_called_once()
+        mock_hn.assert_not_called()
+        mock_gh.assert_not_called()
+
+    def test_academic_query_uses_arxiv_wikipedia_hn(self):
+        # Academic category: arxiv, wikipedia, hackernews — NOT github, reddit
+        tool = WebSearchTool()
+        with patch.object(tool, "_arxiv_search", return_value=[]) as mock_arxiv, \
+             patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
+             patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
+             patch.object(tool, "_github_search", return_value=[]) as mock_gh, \
+             patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit:
+            tool._fallback_search("deep learning benchmark research paper", 5)
+        mock_arxiv.assert_called_once()
+        mock_wiki.assert_called_once()
+        mock_hn.assert_called_once()
+        mock_gh.assert_not_called()
+        mock_reddit.assert_not_called()
+
+    def test_tech_query_uses_hn_github_wikipedia_rss(self):
+        tool = WebSearchTool()
+        with patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
+             patch.object(tool, "_github_search", return_value=[]) as mock_gh, \
+             patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
+             patch.object(tool, "_rss_search", return_value=[]) as mock_rss, \
+             patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit:
+            tool._fallback_search("docker kubernetes deployment python", 5)
+        mock_hn.assert_called_once()
+        mock_gh.assert_called_once()
+        mock_wiki.assert_called_once()
+        mock_rss.assert_called_once()
+        mock_reddit.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

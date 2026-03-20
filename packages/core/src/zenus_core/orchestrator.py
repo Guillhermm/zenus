@@ -9,6 +9,7 @@ High-level orchestration of:
 """
 
 import asyncio
+import os
 from typing import Optional, Dict
 from zenus_core.brain.llm.factory import get_llm
 from zenus_core.brain.planner import execute_plan
@@ -243,26 +244,47 @@ class Orchestrator:
                 console.print(f"[dim cyan]↳ Using {label} for this command[/dim cyan]")
 
             # Step 0a: Web search — must run before complexity routing.
-            # A query that triggers `should_search` is inherently a lookup
-            # (sports schedules, news, prices, versions, etc.), not a multi-step
-            # execution task.  Force oneshot regardless of whether DDG returned
-            # results so the LLM answers from context (or training knowledge when
-            # no results) instead of spinning in the iterative loop.
+            # For lookup queries (questions about facts, schedules, versions…),
+            # we bypass intent translation and plan execution entirely: search,
+            # synthesize via llm.ask(), and return.  For action queries that
+            # happen to need current data (e.g. "install latest Python"), we
+            # inject the results as context and continue with normal execution.
             _pre_search_context = ""
             _search_reason = ""
+            _debug_search = bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
             if not force_oneshot:
                 _should_search, _search_reason = self.search_engine.should_search(user_input)
                 if _should_search:
                     _search_results = self.web_search.search(user_input)
                     _pre_search_context = format_results_for_context(_search_results)
+                    _query_category = self.web_search._classify_query(user_input)
                     if self.show_progress:
                         if _pre_search_context:
                             console.print(f"[dim cyan]↳ Web search: {_search_reason}[/dim cyan]")
+                            if _debug_search:
+                                console.print(f"[dim]↳ Query type: {_query_category} | {len(_search_results)} result(s)[/dim]")
+                                for _r in _search_results:
+                                    console.print(f"[dim]   [{_r.source}] {_r.title}: {_r.snippet[:80]}...[/dim]")
                         else:
-                            console.print(f"[dim yellow]↳ Web search attempted — no results (will answer from training data)[/dim yellow]")
-                    # Always force oneshot for search-triggered queries.
-                    # Iterative mode produces empty observations for lookups.
+                            console.print(f"[dim yellow]↳ Web search attempted — no results[/dim yellow]")
                     force_oneshot = True
+
+                    # Lookup queries: synthesize answer directly from search results.
+                    # Action queries ("install ...", "upgrade ...", "configure ...") are
+                    # not factual lookups — let them fall through to plan execution.
+                    if self.search_engine._looks_factual(user_input):
+                        _synth_ctx = (
+                            f"[Web Search Results - {_search_reason}]\n{_pre_search_context}"
+                            if _pre_search_context
+                            else (
+                                "Note: A web search was attempted for this query but returned "
+                                "no current results. Answer from training knowledge and clearly "
+                                "acknowledge you may not have up-to-date data."
+                            )
+                        )
+                        answer = self.llm.ask(user_input, _synth_ctx)
+                        console.print(answer)
+                        return answer
 
             # Step 0: Analyze task complexity (auto-detect iterative need)
             if not force_oneshot:
@@ -284,33 +306,14 @@ class Orchestrator:
             if self.use_memory:
                 context = self._build_context(user_input)
 
-            # Step 1.4: Inject pre-fetched web search results (done in Step 0a to
-            # inform routing; reuse here rather than searching a second time).
+            # Step 1.4: Inject pre-fetched web search context for action queries
+            # (lookup queries already returned from Step 0a above).
             if _pre_search_context:
                 context = (
                     f"{context}\n\n[Web Search Results - {_search_reason}]\n{_pre_search_context}"
                     if context
                     else f"[Web Search Results - {_search_reason}]\n{_pre_search_context}"
                 )
-            elif _search_reason:
-                # Search was triggered but DDG returned nothing.
-                # Skip translate_intent entirely — generating WebSearch tool steps
-                # would just produce empty observations (same backend, same result).
-                # Answer directly from training knowledge via ask().
-                _no_results_ctx = (
-                    f"{context}\n\nNote: A web search was attempted for this query "
-                    "but returned no current results. Answer from training knowledge "
-                    "and clearly acknowledge you may not have up-to-date data."
-                    if context
-                    else (
-                        "Note: A web search was attempted for this query but returned "
-                        "no current results. Answer from training knowledge and clearly "
-                        "acknowledge you may not have up-to-date data."
-                    )
-                )
-                answer = self.llm.ask(user_input, _no_results_ctx)
-                console.print(answer)
-                return answer
 
             # Step 1.5: Goal Inference - Understand high-level intent
             if self.enable_goal_inference:
@@ -331,7 +334,6 @@ class Orchestrator:
                         console.print()
                         
                         # Ask if user wants to use suggested workflow
-                        import os
                         if not os.environ.get('ZENUS_AUTO_ACCEPT_SUGGESTIONS'):
                             console.print("[cyan]Use suggested workflow? (y/n, default=y):[/cyan] ", end="")
                             try:
@@ -827,28 +829,49 @@ class Orchestrator:
             context = self._build_context(user_input)
 
         # Web search injection — same gate as execute_command Step 0a.
-        # Ensures each iterative session starts with fresh data when the query
-        # is time-sensitive (sports schedules, versions, news, etc.).
+        # Lookup queries (questions) bypass the iterative loop entirely.
+        # Action queries that need current data get context injected.
+        _debug_search = bool(os.environ.get("ZENUS_SEARCH_DEBUG"))
         should_search, search_reason = self.search_engine.should_search(user_input)
         if should_search:
             search_results = self.web_search.search(user_input)
             search_context = format_results_for_context(search_results)
+            if self.show_progress:
+                if search_context:
+                    console.print(f"[dim cyan]↳ Web search: {search_reason}[/dim cyan]")
+                    if _debug_search:
+                        _cat = self.web_search._classify_query(user_input)
+                        console.print(f"[dim]↳ Query type: {_cat} | {len(search_results)} result(s)[/dim]")
+                else:
+                    console.print("[dim yellow]↳ Web search returned no results[/dim yellow]")
+
+            # Lookup query: answer directly, skip the iterative execution loop.
+            if self.search_engine._looks_factual(user_input):
+                _synth_ctx = (
+                    f"[Web Search Results - {search_reason}]\n{search_context}"
+                    if search_context
+                    else (
+                        "Note: Web search returned no current results. "
+                        "Answer from training knowledge and acknowledge the limitation."
+                    )
+                )
+                answer = self.llm.ask(user_input, _synth_ctx)
+                console.print(answer)
+                return answer
+
+            # Action query: inject context into the iterative loop.
             if search_context:
                 context = (
                     f"{context}\n\n[Web Search Results - {search_reason}]\n{search_context}"
                     if context
                     else f"[Web Search Results - {search_reason}]\n{search_context}"
                 )
-                console.print(f"[dim cyan]↳ Web search: {search_reason}[/dim cyan]")
             else:
-                # Search attempted but returned nothing — tell LLM so it
-                # doesn't waste iterations trying tool-based web fetches.
                 _no_results = (
                     "[Web Search attempted but returned no current results. "
                     "Answer from training knowledge and acknowledge the limitation.]"
                 )
                 context = f"{context}\n\n{_no_results}" if context else _no_results
-                console.print("[dim yellow]↳ Web search returned no results[/dim yellow]")
 
         # Route to appropriate model (iterative = likely complex)
         selected_model, complexity = self.router.route(user_input, iterative=True, force_model=force_provider)
