@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] - 2026-03-21
+
 ### Changed
 - **LLM-driven search classification** (`brain/llm/schemas.py`, `orchestrator.py`, `tools/web_search.py`): replaced the heuristic `SearchDecisionEngine` (temporal regex patterns + knowledge-gap months + factual-question heuristic) with LLM-based classification. The LLM now receives the current date/time during intent translation and sets three new `IntentIR` fields: `search_provider` (`"web"` | `"llm"` | `null`), `search_category` (`"sports"` | `"tech"` | `"academic"` | `"news"` | `"general"`), and `cannot_answer` + `fallback_response` for truly unanswerable queries. The orchestrator uses these fields to decide whether to run `WebSearchTool`, answer from training knowledge, or return an immediate fallback — eliminating false-positive and false-negative search triggers from the old pattern-matching approach.
 - **System prompt** (`brain/llm/system_prompt.py`): added SEARCH CLASSIFICATION and CANNOT ANSWER instruction blocks; current date/time injected at build time via `current_datetime` parameter (all LLM backends updated).
