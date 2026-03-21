@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
+  <defs>
+    <!--
+      Dark-mode variant: outer halo circles are bright blue so the Gaussian
+      blur creates a luminous glow outward rather than a dark shadow.
+    -->
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Primary Z edges — slightly more opaque on dark -->
+  <line x1="18"  y1="18"  x2="142" y2="18"  stroke="#60a5fa" stroke-width="2"   opacity="0.5"/>
+  <line x1="142" y1="18"  x2="18"  y2="142" stroke="#60a5fa" stroke-width="2"   opacity="0.5"/>
+  <line x1="18"  y1="142" x2="142" y2="142" stroke="#60a5fa" stroke-width="2"   opacity="0.5"/>
+
+  <!-- Secondary / neural cross-edges -->
+  <line x1="18"  y1="18"  x2="52"  y2="80"  stroke="#3b82f6" stroke-width="1.2" opacity="0.35"/>
+  <line x1="142" y1="18"  x2="108" y2="80"  stroke="#3b82f6" stroke-width="1.2" opacity="0.35"/>
+  <line x1="52"  y1="80"  x2="18"  y2="142" stroke="#3b82f6" stroke-width="1.2" opacity="0.35"/>
+  <line x1="108" y1="80"  x2="142" y2="142" stroke="#3b82f6" stroke-width="1.2" opacity="0.35"/>
+  <line x1="52"  y1="80"  x2="108" y2="80"  stroke="#3b82f6" stroke-width="1.2" opacity="0.25"/>
+
+  <!-- Nodes — halo is bright blue so blur blooms as light, not shadow -->
+  <g filter="url(#softglow)">
+    <!-- Corner nodes — large -->
+    <circle cx="18"  cy="18"  r="8" fill="#2563eb"/>
+    <circle cx="18"  cy="18"  r="4.5" fill="#93c5fd"/>
+
+    <circle cx="142" cy="18"  r="8" fill="#2563eb"/>
+    <circle cx="142" cy="18"  r="4.5" fill="#93c5fd"/>
+
+    <circle cx="18"  cy="142" r="8" fill="#2563eb"/>
+    <circle cx="18"  cy="142" r="4.5" fill="#93c5fd"/>
+
+    <circle cx="142" cy="142" r="8" fill="#2563eb"/>
+    <circle cx="142" cy="142" r="4.5" fill="#93c5fd"/>
+
+    <!-- Mid-diagonal nodes — smaller -->
+    <circle cx="52"  cy="80"  r="5.5" fill="#2563eb"/>
+    <circle cx="52"  cy="80"  r="3"   fill="#bfdbfe"/>
+
+    <circle cx="108" cy="80"  r="5.5" fill="#2563eb"/>
+    <circle cx="108" cy="80"  r="3"   fill="#bfdbfe"/>
+  </g>
+</svg>
