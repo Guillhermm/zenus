@@ -26,14 +26,6 @@ import logging
 import os
 from typing import Any, Callable, Dict
 
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError as exc:
-    raise ImportError(
-        "The 'mcp' package is required for MCP server mode.\n"
-        "Install it with:  pip install 'zenus-core[mcp]'  or  pip install mcp"
-    ) from exc
-
 from zenus_core.tools.registry import TOOLS
 from zenus_core.tools.privilege import PRIVILEGED_TOOLS, PrivilegeTier, check_privilege
 
@@ -121,7 +113,7 @@ def _wrap_action(
 # Public API
 # ---------------------------------------------------------------------------
 
-def build_server(allow_privileged: bool = False) -> "FastMCP":
+def build_server(allow_privileged: bool = False) -> "Any":
     """
     Construct and return a FastMCP server instance with all Zenus tools registered.
 
@@ -131,6 +123,14 @@ def build_server(allow_privileged: bool = False) -> "FastMCP":
     Returns:
         A fully configured ``FastMCP`` instance ready to call ``.run()``.
     """
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError as exc:
+        raise ImportError(
+            "The 'mcp' package is required for MCP server mode.\n"
+            "Install it with:  pip install 'zenus-core[mcp]'  or  pip install mcp"
+        ) from exc
+
     tier = PrivilegeTier.PRIVILEGED if allow_privileged else PrivilegeTier.STANDARD
 
     mcp = FastMCP(
@@ -177,6 +177,14 @@ def run_server(
         port:             SSE port (ignored for stdio).
         allow_privileged: Expose ShellOps and CodeExec.
     """
+    try:
+        from mcp.server.fastmcp import FastMCP  # noqa: F401 — validate availability early
+    except ImportError as exc:
+        raise ImportError(
+            "The 'mcp' package is required for MCP server mode.\n"
+            "Install it with:  pip install 'zenus-core[mcp]'  or  pip install mcp"
+        ) from exc
+
     # Allow env-var override for quick one-off privileged sessions
     if os.getenv("MCP_ALLOW_PRIVILEGED", "").lower() in ("1", "true", "yes"):
         allow_privileged = True

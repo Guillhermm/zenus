@@ -7,11 +7,15 @@ All tests are fully offline — no real MCP connections are made.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import inspect
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+_mcp_available = importlib.util.find_spec("mcp") is not None
+_requires_mcp = pytest.mark.skipif(not _mcp_available, reason="mcp package not installed")
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +73,7 @@ class TestMCPConfigSchema:
 # Server: build_server
 # ---------------------------------------------------------------------------
 
+@_requires_mcp
 class TestBuildServer:
     def test_build_server_returns_fastmcp(self):
         from mcp.server.fastmcp import FastMCP
@@ -338,6 +343,7 @@ class TestMCPClientRegistryMocked:
         return session
 
     @pytest.mark.asyncio
+    @_requires_mcp
     async def test_initialise_registers_tools(self):
         from zenus_core.mcp.client import MCPClientRegistry
         from zenus_core.config.schema import MCPClientConfig, MCPExternalServer
@@ -364,6 +370,7 @@ class TestMCPClientRegistryMocked:
         assert "mcp__myserver__read_file" in tools
 
     @pytest.mark.asyncio
+    @_requires_mcp
     async def test_initialise_warns_on_connection_failure(self):
         from zenus_core.mcp.client import MCPClientRegistry
         from zenus_core.config.schema import MCPClientConfig, MCPExternalServer
