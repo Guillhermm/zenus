@@ -692,3 +692,164 @@ class TestExecuteCommandAdaptive:
                 result = orch.execute_command("adaptive")
 
             mock_planner.execute_with_retry.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# execute_command — LLM-based search classification
+# ---------------------------------------------------------------------------
+
+class TestExecuteCommandLLMSearch:
+
+    def test_cannot_answer_returns_fallback_response(self):
+        """When intent.cannot_answer is True, fallback_response is returned immediately."""
+        intent = IntentIR(
+            goal="private db query",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            cannot_answer=True,
+            fallback_response="I cannot access your private database.",
+        )
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("what is in my db", None, None)):
+                with patch("zenus_core.orchestrator.print_markdown") as mock_md:
+                    result = orch.execute_command("what is in my db")
+
+        assert result == "I cannot access your private database."
+        mock_md.assert_called_once_with("I cannot access your private database.")
+
+    def test_cannot_answer_without_fallback_response_uses_default(self):
+        """If cannot_answer is True but fallback_response is None, a generic message is used."""
+        intent = IntentIR(
+            goal="inaccessible",
+            requires_confirmation=False,
+            steps=[],
+            cannot_answer=True,
+            fallback_response=None,
+        )
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("inaccessible query", None, None)):
+                with patch("zenus_core.orchestrator.print_markdown"):
+                    result = orch.execute_command("inaccessible query")
+
+        assert result  # Some non-empty response
+        assert isinstance(result, str)
+
+    def test_search_provider_web_with_question_runs_search_and_returns_answer(self):
+        """search_provider='web' + is_question=True → search → llm.ask() → return."""
+        intent = IntentIR(
+            goal="who won the match",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="web",
+            search_category="sports",
+        )
+        fake_results = [
+            Mock(source="wikipedia", title="Match Result", snippet="Team A won 2-1.", url="http://wiki.org/match")
+        ]
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mock_llm.ask.return_value = "Team A won 2-1."
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("who won the match", None, None)):
+                with patch.object(orch.web_search, "search", return_value=fake_results):
+                    with patch("zenus_core.orchestrator.print_markdown"):
+                        result = orch.execute_command("who won the match")
+
+        assert result == "Team A won 2-1."
+        mock_llm.ask.assert_called_once()
+
+    def test_search_provider_web_with_question_passes_category_to_search(self):
+        """search_provider='web' passes intent.search_category to web_search.search()."""
+        intent = IntentIR(
+            goal="latest Python version",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="web",
+            search_category="tech",
+        )
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mock_llm.ask.return_value = "Python 3.13 is the latest."
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("latest Python version", None, None)):
+                with patch.object(orch.web_search, "search", return_value=[]) as mock_search:
+                    with patch("zenus_core.orchestrator.print_markdown"):
+                        orch.execute_command("latest Python version")
+
+        mock_search.assert_called_once()
+        call_kwargs = mock_search.call_args
+        assert call_kwargs[1].get("category") == "tech" or (
+            len(call_kwargs[0]) > 1 and call_kwargs[0][1] == "tech"
+        )
+
+    def test_search_provider_web_question_no_results_falls_back_to_training(self):
+        """No search results → llm.ask() with 'no results' context."""
+        intent = IntentIR(
+            goal="who won",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="web",
+            search_category="sports",
+        )
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mock_llm.ask.return_value = "I don't have current data on this."
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("who won", None, None)):
+                with patch.object(orch.web_search, "search", return_value=[]):
+                    with patch("zenus_core.orchestrator.format_results_for_context", return_value=""):
+                        with patch("zenus_core.orchestrator.print_markdown"):
+                            result = orch.execute_command("who won")
+
+        mock_llm.ask.assert_called_once()
+        # Context passed to ask should mention no results
+        ctx_arg = mock_llm.ask.call_args[0][1]
+        assert "no current results" in ctx_arg or "no results" in ctx_arg.lower()
+
+    def test_search_provider_llm_question_uses_ask_directly(self):
+        """search_provider='llm' + is_question=True → llm.ask() without web search."""
+        intent = IntentIR(
+            goal="what is photosynthesis",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="llm",
+        )
+        with _orchestrator_ctx() as (orch, mocks):
+            mock_llm = Mock()
+            mock_llm.translate_intent.return_value = intent
+            mock_llm.ask.return_value = "Photosynthesis is the process..."
+            mocks["get_llm"].return_value = mock_llm
+
+            with patch("zenus_core.brain.provider_override.parse_provider_override",
+                       return_value=("what is photosynthesis", None, None)):
+                with patch.object(orch.web_search, "search") as mock_search:
+                    with patch("zenus_core.orchestrator.print_markdown"):
+                        result = orch.execute_command("what is photosynthesis")
+
+        mock_search.assert_not_called()
+        mock_llm.ask.assert_called_once()
+        assert "Photosynthesis" in result

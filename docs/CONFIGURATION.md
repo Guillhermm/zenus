@@ -281,11 +281,11 @@ search:
 
 **How it works:**
 
-1. `SearchDecisionEngine` decides whether the query needs a web search (temporal patterns, knowledge-gap heuristic, factual-question detection).
-2. Query is classified as `sports`, `tech`, `academic`, `news`, or `general`.
-3. Only the relevant 3–4 sources are queried in parallel (e.g. sports → Wikipedia + Reddit + RSS; tech → HackerNews + GitHub + Wikipedia + RSS).
-4. If `search.brave_api_key` is set, Brave Search is tried first (full web index); fallback sources are used if the key is absent or returns nothing.
-5. For factual lookup queries the orchestrator bypasses plan execution entirely and calls `llm.ask()` with the results — the user sees only the synthesised plain-text answer.
+1. During intent translation, the LLM receives the current date/time and classifies every query: `search_provider: "web"` (needs current data), `search_provider: "llm"` (training knowledge is sufficient), or `null` (action intent — no lookup needed). It also sets `search_category` to one of `sports`, `tech`, `academic`, `news`, or `general`.
+2. If `search_provider` is `"web"`, `WebSearchTool` runs only the relevant 3–4 sources in parallel for the given category (e.g. sports → Wikipedia + Reddit + RSS; tech → HackerNews + GitHub + Wikipedia + RSS).
+3. If `search.brave_api_key` is set, Brave Search is tried first (full web index); fallback sources are used if the key is absent or returns nothing.
+4. For question intents with web results, the orchestrator calls `llm.ask()` with the results — the user sees only the synthesised plain-text answer.
+5. If the LLM sets `cannot_answer: true`, a context-specific fallback message is returned immediately without any search or tool execution.
 
 **Priority for settings:**
 

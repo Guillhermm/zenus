@@ -114,35 +114,37 @@ class AnthropicLLM:
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         """
         Translate user intent to IntentIR using Claude
-        
+
         Args:
             user_input: Natural language command
             stream: Enable streaming (avoids timeouts on long responses)
-        
+
         Returns:
             IntentIR object
         """
+        from datetime import datetime
+        system = build_system_prompt(current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M"))
         if stream:
             # Use streaming to avoid timeouts on long responses
             full_text = ""
             with self.client.messages.stream(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                system=build_system_prompt(),
+                system=system,
                 messages=[
                     {"role": "user", "content": user_input}
                 ]
             ) as stream:
                 for text in stream.text_stream:
                     full_text += text
-            
+
             content = full_text
         else:
             # Non-streaming mode
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
-                system=build_system_prompt(),
+                system=system,
                 messages=[
                     {"role": "user", "content": user_input}
                 ]
@@ -283,10 +285,11 @@ class AnthropicLLM:
 
     async def atranslate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         """Native async translate_intent using AsyncAnthropic."""
+        from datetime import datetime
         response = await self.async_client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
-            system=build_system_prompt(),
+            system=build_system_prompt(current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M")),
             messages=[{"role": "user", "content": user_input}],
         )
         content = response.content[0].text

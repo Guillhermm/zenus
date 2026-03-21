@@ -8,7 +8,7 @@
 # - Update system_prompt.py in lock-step with any schema change
 
 from pydantic import BaseModel, Field # type: ignore
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Literal, Optional
 
 
 class Step(BaseModel):
@@ -28,3 +28,14 @@ class IntentIR(BaseModel):
     # Optional short description used to build the execution summary.
     # Populated by the LLM for action intents; ignored for questions.
     action_summary: Optional[str] = Field(default=None)
+    # Search classification — set by the LLM during intent translation.
+    # "web": query needs current internet data (news, scores, versions, etc.)
+    # "llm": training knowledge is sufficient for this question
+    # null: action/operation intent — no information lookup needed
+    search_provider: Optional[Literal["web", "llm"]] = Field(default=None)
+    # Query category for smart source routing when search_provider == "web".
+    search_category: Optional[Literal["sports", "tech", "academic", "news", "general"]] = Field(default=None)
+    # When True: neither web search nor training knowledge can answer this.
+    # fallback_response must contain a context-specific explanation.
+    cannot_answer: bool = Field(default=False)
+    fallback_response: Optional[str] = Field(default=None)

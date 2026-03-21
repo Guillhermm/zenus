@@ -109,3 +109,97 @@ class TestIntentIR:
                 requires_confirmation=False,
                 steps=[{"invalid": "dict"}]
             )
+
+    def test_is_question_defaults_false(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.is_question is False
+
+    def test_action_summary_defaults_none(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.action_summary is None
+
+    def test_search_provider_defaults_none(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.search_provider is None
+
+    def test_search_category_defaults_none(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.search_category is None
+
+    def test_cannot_answer_defaults_false(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.cannot_answer is False
+
+    def test_fallback_response_defaults_none(self):
+        intent = IntentIR(goal="do X", requires_confirmation=False, steps=[])
+        assert intent.fallback_response is None
+
+    def test_search_provider_web(self):
+        intent = IntentIR(
+            goal="who won the match",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="web",
+            search_category="sports",
+        )
+        assert intent.search_provider == "web"
+        assert intent.search_category == "sports"
+
+    def test_search_provider_llm(self):
+        intent = IntentIR(
+            goal="what is photosynthesis",
+            requires_confirmation=False,
+            steps=[],
+            is_question=True,
+            search_provider="llm",
+        )
+        assert intent.search_provider == "llm"
+        assert intent.search_category is None
+
+    def test_search_provider_invalid_rejected(self):
+        with pytest.raises(ValidationError):
+            IntentIR(
+                goal="test",
+                requires_confirmation=False,
+                steps=[],
+                search_provider="google",
+            )
+
+    def test_search_category_invalid_rejected(self):
+        with pytest.raises(ValidationError):
+            IntentIR(
+                goal="test",
+                requires_confirmation=False,
+                steps=[],
+                search_category="cooking",
+            )
+
+    def test_cannot_answer_with_fallback(self):
+        intent = IntentIR(
+            goal="what is in private db",
+            requires_confirmation=False,
+            steps=[],
+            cannot_answer=True,
+            fallback_response="This question requires access to a private database I cannot reach.",
+        )
+        assert intent.cannot_answer is True
+        assert "private database" in intent.fallback_response
+
+    def test_all_search_categories_valid(self):
+        for cat in ("sports", "tech", "academic", "news", "general"):
+            intent = IntentIR(
+                goal="test",
+                requires_confirmation=False,
+                steps=[],
+                search_provider="web",
+                search_category=cat,
+            )
+            assert intent.search_category == cat
+
+    def test_backward_compatible_without_new_fields(self):
+        """Old intents without new fields must still validate."""
+        data = {"goal": "list files", "requires_confirmation": False, "steps": []}
+        intent = IntentIR.model_validate(data)
+        assert intent.search_provider is None
+        assert intent.cannot_answer is False

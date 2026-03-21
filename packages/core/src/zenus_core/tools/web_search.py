@@ -1,19 +1,11 @@
 """
 Web Search Tool
 
-Zenus automatically decides when to search the web based on three signals:
+The search decision (whether to search and with which category) is made by
+the LLM during intent translation — the LLM receives the current date/time and
+classifies the query as needing web search ("web") or training knowledge ("llm").
 
-  1. Knowledge gap  — calculates the months between the LLM's training cutoff
-                      and today; queries about time-sensitive topics trigger
-                      a search when the gap is large enough.
-  2. Query type     — pattern-matching for topics that inherently require
-                      current data (sports scores, software versions, news,
-                      prices, weather).
-  3. Q&A intent     — when the LLM flagged the request as a question
-                      (is_question=True) the answer may benefit from fresh data.
-
-The user never has to ask Zenus to search — it happens transparently and the
-results are injected into the LLM context before intent translation.
+This module executes web searches once the LLM has decided one is needed.
 
 Search backends:
   Primary:  Brave Search API (full web index, configure BRAVE_SEARCH_API_KEY)
@@ -21,6 +13,9 @@ Search backends:
             Semantic Scholar, OpenAlex, Reddit, curated RSS feeds,
             DuckDuckGo Instant Answer.
             No API key required for fallback mode.
+
+Query categories (set by the LLM in IntentIR.search_category):
+  sports, tech, academic, news, general
 """
 
 from __future__ import annotations
@@ -31,7 +26,7 @@ import logging
 import re
 from html.parser import HTMLParser
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import quote_plus
 
 import defusedxml.ElementTree as ET
@@ -103,163 +98,8 @@ class SearchResult:
 
 
 # ---------------------------------------------------------------------------
-# Time-sensitive topic patterns
-# ---------------------------------------------------------------------------
-
-_TEMPORAL_PATTERNS = [
-    # Sports and live events (singular and plural)
-    r"\bscores?\b", r"\bstandings?\b", r"\bchampion(?:ship)?\b",
-    r"\bmatch(?:es)?\b", r"\bfinals?\b", r"\bplayoffs?\b",
-    r"\bfixtures?\b", r"\bupcoming\s+(?:game|match|fixture)\b",
-    r"\bnext\s+(?:game|match|fixture)\b",
-    # Software versions (explicit version/release asks)
-    r"\blatest\s+version\b", r"\bcurrent\s+version\b",
-    r"\bnew\s+(?:version|release|feature)\b",
-    r"\bchangelog\b", r"\brelease\s+notes?\b",
-    # News and current events
-    r"\btoday\b", r"\bthis\s+week\b", r"\bthis\s+month\b", r"\brecently\b",
-    r"\bnews\b", r"\bannounce[d]?\b", r"\bbreaking\b",
-    # Prices and markets
-    r"\bprice[s]?\b", r"\bstock\s+(?:price|market|quote)\b",
-    r"\bcrypto(?:currency)?\b", r"\bbitcoin\b", r"\bethereum\b",
-    r"\bexchange\s+rate\b", r"\bcurrency\s+(?:rate|value|convert)\b",
-    # Weather
-    r"\bweather\b", r"\bforecast\b",
-    # Current-status: leadership/ownership — these change without "latest" marker
-    r"\bwho\s+is\s+(?:the\s+)?(?:current\s+)?(?:ceo|cto|cfo|president|prime\s+minister|"
-    r"secretary|chairman|governor|mayor|chancellor|coach|manager|captain|owner|director|head)\b",
-    r"\bwho\s+(?:owns|runs|leads|heads|controls|governs|founded|represents)\s",
-    r"\bcurrent\s+(?:ceo|cto|cfo|president|prime\s+minister|owner|champion|leader|"
-    r"coach|manager|version|release|status)\b",
-    r"\bwho\s+won\b", r"\bwho\s+is\s+(?:the\s+)?(?:lead|number\s+one|top|ranked)\b",
-    # Entertainment: movies/shows in theaters or streaming
-    r"\bnow\s+playing\b",
-    r"\bin\s+the(?:aters?|atres?|cinemas?)\b",
-    r"\bcurrent(?:ly)?\s+(?:in\s+(?:the)?(?:aters?|atres?|cinemas?)|playing|showing|screening)\b",
-    r"\bcurrent\s+(?:movies?|films?|shows?|series|season|episodes?)\b",
-    r"\bwhat(?:'s|\s+is)\s+(?:on\s+(?:at\s+the\s+cinema|tv)|playing|showing)\b",
-    r"\bbox\s*office\b",
-    r"\bstreaming\s+(?:now|this\s+(?:week|month))\b",
-    r"\bnew\s+(?:movies?|films?|shows?|series|episodes?)\b",
-    r"\bupcoming\s+(?:movies?|films?|shows?|releases?)\b",
-    r"\bwhat\s+movies?\s+(?:are|is)\b",
-    # Attribution queries — LLMs may hallucinate authorship of obscure works
-    r"\bwho\s+(?:made|created|developed|wrote|authored|invented|designed|built)\b",
-]
-
-_TEMPORAL_RE = re.compile("|".join(_TEMPORAL_PATTERNS), re.IGNORECASE)
-
-
-# Queries that look like action commands despite starting with "can/could you".
-# These should NOT be treated as factual lookups even if temporal patterns fire.
-_ACTION_REQUEST_RE = re.compile(
-    r"^(?:can|could|please|would\s+you)\s+(?:you\s+)?(?:"
-    r"check|run|execute|start|stop|restart|kill|"
-    r"install|uninstall|upgrade|update|download|upload|"
-    r"open|close|create|make|build|delete|remove|move|copy|rename|"
-    r"edit|write|generate|fix|deploy|launch|configure|setup|"
-    r"monitor|watch|scan|list\s+(?:my|the|all)|"
-    r"show\s+(?:me\s+)?(?:my\s+)?(?:files?|disk|memory|cpu|ram|processes?|"
-    r"services?|logs?|status|running|usage)|"
-    r"help\s+me\s+(?:install|setup|configure|create|fix|build|run|deploy)"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-# ---------------------------------------------------------------------------
-# SearchDecisionEngine
-# ---------------------------------------------------------------------------
-
-class SearchDecisionEngine:
-    """
-    Decides whether to perform a web search before answering.
-
-    Only queries that are genuinely time-sensitive trigger a search:
-    sports schedules/scores, software versions, current leadership/ownership,
-    prices, weather, news, and similar topics where training data goes stale.
-
-    Timeless factual questions ("who are the best composers?", "what is
-    photosynthesis?") and action commands ("check my disk", "install Python")
-    are deliberately NOT flagged for search.
-    """
-
-    def should_search(self, query: str) -> Tuple[bool, str]:
-        """
-        Return (True, reason) if a web search is warranted, else (False, "").
-        A search is triggered only when the query matches an explicit
-        time-sensitive pattern — not just because the training data is old.
-        """
-        if _TEMPORAL_RE.search(query):
-            return True, "query requires current information"
-        return False, ""
-
-    @staticmethod
-    def _looks_factual(query: str) -> bool:
-        """
-        Return True if the query is a factual lookup (not an action command).
-
-        Used by the orchestrator to decide whether to bypass plan execution
-        and synthesise an answer directly from search results.  Action
-        commands like "can you check my disk" or "can you install Python"
-        must return False so they are routed to plan execution instead.
-        """
-        # Action commands starting with can/could/please/would you <verb>
-        if _ACTION_REQUEST_RE.match(query.strip()):
-            return False
-        factual_starters = re.compile(
-            r"^(?:what|who|when|where|which|how\s+(?:many|much|old)|is\s+there|"
-            r"does|did|has|have|will|are|were|"
-            r"tell\s+me|can\s+you\s+tell|could\s+you\s+tell|"
-            r"do\s+you\s+know|find\s+(?:me|out))\b",
-            re.IGNORECASE,
-        )
-        return bool(factual_starters.match(query.strip()))
-
-
-# ---------------------------------------------------------------------------
 # WebSearchTool
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Query classification patterns (used for smart source routing)
-# ---------------------------------------------------------------------------
-
-_SPORTS_QUERY_RE = re.compile(
-    r"\b(soccer|football|basketball|tennis|cricket|baseball|volleyball|golf|rugby|"
-    r"nba|nfl|mlb|nhl|nba|f1|formula\s*1|mls|premier\s*league|la\s*liga|bundesliga|serie\s*a|"
-    r"match(?:es)?|fixture|standing|champion(?:ship)?|league|playoff|tournament|"
-    r"team|club|player|coach|goal|score|half.?time|transfer|palmeiras|flamengo|"
-    r"manchester|barcelona|real\s+madrid)\b",
-    re.IGNORECASE,
-)
-
-_TECH_QUERY_RE = re.compile(
-    r"\b(software|programming|javascript|typescript|python|rust|golang|java|kotlin|swift|"
-    r"react|vue|angular|node(?:\.?js)?|docker|kubernetes|k8s|api|sdk|"
-    r"framework|library|github|gitlab|npm|pip|cargo|brew|apt|"
-    r"linux|ubuntu|debian|fedora|macos|windows|server|cloud|aws|gcp|azure|"
-    r"llm|gpt|claude|gemini|mistral|ollama|openai|anthropic)\b",
-    re.IGNORECASE,
-)
-
-_ACADEMIC_QUERY_RE = re.compile(
-    r"\b(research|paper|study|journal|published?|arxiv|"
-    r"algorithm|theorem|proof|benchmark|dataset|survey|"
-    r"machine\s+learning|deep\s+learning|neural\s+network|"
-    r"reinforcement\s+learning|natural\s+language|computer\s+vision|"
-    r"citation|peer.?review|preprint|conference|proceedings|"
-    r"semantic\s+scholar|pubmed|doi\b)\b",
-    re.IGNORECASE,
-)
-
-_NEWS_QUERY_RE = re.compile(
-    r"\b(news|breaking|announc(?:e|ed)|today|this\s+week|this\s+month|"
-    r"politic(?:s|al)?|election|economy|market|inflation|recession|"
-    r"war|conflict|president|prime\s+minister|government|policy)\b",
-    re.IGNORECASE,
-)
 
 
 class WebSearchTool(Tool):
@@ -270,8 +110,10 @@ class WebSearchTool(Tool):
     No API key required for fallback mode; configure BRAVE_SEARCH_API_KEY
     for full web search coverage.
 
-    Fallback sources are selected based on query type (sports, tech,
-    academic, news, general) to avoid irrelevant results.
+    The search decision (whether to search) is made by the LLM in
+    IntentIR.search_provider. This tool executes the search and returns
+    results. Fallback sources are selected by the query category set in
+    IntentIR.search_category (sports, tech, academic, news, general).
     """
 
     name = "WebSearch"
@@ -331,13 +173,27 @@ class WebSearchTool(Tool):
     # Public search API
     # ------------------------------------------------------------------
 
-    def search(self, query: str, max_results: int = 5) -> List[SearchResult]:
-        """Primary: Brave Search. Fallback: parallel multi-source."""
+    def search(
+        self,
+        query: str,
+        max_results: int = 5,
+        category: str = "general",
+    ) -> List[SearchResult]:
+        """
+        Primary: Brave Search API. Fallback: parallel multi-source.
+
+        Args:
+            query: Search query string.
+            max_results: Maximum number of results to return.
+            category: Query category for fallback source routing.
+                      One of: sports, tech, academic, news, general.
+                      Ignored when Brave Search is used (full web index).
+        """
         if self._brave_key:
             results = self._brave_search(query, max_results)
             if results:
                 return results
-        return self._fallback_search(query, max_results)
+        return self._fallback_search(query, max_results, category=category)
 
     # ------------------------------------------------------------------
     # Primary: Brave Search
@@ -375,31 +231,15 @@ class WebSearchTool(Tool):
         return results[:max_results]
 
     # ------------------------------------------------------------------
-    # Query classification
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _classify_query(query: str) -> str:
-        """
-        Classify the query into a category for smart source routing.
-
-        Returns one of: "sports", "tech", "academic", "news", "general".
-        """
-        if _SPORTS_QUERY_RE.search(query):
-            return "sports"
-        if _ACADEMIC_QUERY_RE.search(query):
-            return "academic"
-        if _TECH_QUERY_RE.search(query):
-            return "tech"
-        if _NEWS_QUERY_RE.search(query):
-            return "news"
-        return "general"
-
-    # ------------------------------------------------------------------
     # Fallback: parallel multi-source with smart routing
     # ------------------------------------------------------------------
 
-    def _fallback_search(self, query: str, max_results: int) -> List[SearchResult]:
+    def _fallback_search(
+        self,
+        query: str,
+        max_results: int,
+        category: str = "general",
+    ) -> List[SearchResult]:
         """
         Run a category-appropriate subset of sources in parallel.
         Results are merged in priority order and deduplicated by URL.
@@ -410,8 +250,13 @@ class WebSearchTool(Tool):
           academic → Semantic Scholar, arXiv, OpenAlex, Wikipedia
           news     → RSS, Reddit, HackerNews, DDG
           general  → Wikipedia, DDG, RSS
+
+        Args:
+            query: Search query string.
+            max_results: Maximum results to return.
+            category: Query category from IntentIR.search_category.
+                      Defaults to "general" if not set.
         """
-        category = self._classify_query(query)
 
         # (priority_idx, name, callable, per_source_limit)
         _SOURCES_BY_CATEGORY: Dict[str, list] = {

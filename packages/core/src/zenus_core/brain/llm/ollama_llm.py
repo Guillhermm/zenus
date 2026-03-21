@@ -47,8 +47,8 @@ class OllamaLLM:
     
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
         """Translate user input to Intent IR using Ollama"""
-        
-        prompt = f"{build_system_prompt()}\n\nUser: {user_input}\n\nJSON:"
+        from datetime import datetime
+        prompt = f"{build_system_prompt(current_datetime=datetime.now().strftime('%Y-%m-%d %H:%M'))}\n\nUser: {user_input}\n\nJSON:"
         
         try:
             response = requests.post(

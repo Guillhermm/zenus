@@ -2,12 +2,11 @@
 Unit tests for zenus_core.tools.web_search
 
 Tests cover:
-- SearchDecisionEngine: temporal patterns, knowledge gap, factual heuristic
-- WebSearchTool._classify_query: query type classification for smart routing
 - WebSearchTool: Brave Search, per-source fetchers, dry_run, execute
-- _fallback_search: smart routing by query category, deduplication, max_results
+- _fallback_search: smart routing by query category (passed by caller), deduplication, max_results
 - format_results_for_context: formatting and edge cases
 - _first_sentence helper
+- Security: HTML stripping, defusedxml
 """
 
 from __future__ import annotations
@@ -19,16 +18,9 @@ import pytest
 
 from zenus_core.tools.web_search import (
     SearchResult,
-    SearchDecisionEngine,
     WebSearchTool,
     format_results_for_context,
     _first_sentence,
-    _TEMPORAL_RE,
-    _ACTION_REQUEST_RE,
-    _SPORTS_QUERY_RE,
-    _TECH_QUERY_RE,
-    _ACADEMIC_QUERY_RE,
-    _NEWS_QUERY_RE,
 )
 
 
@@ -46,161 +38,6 @@ class TestSearchResult:
         assert r.source == "duckduckgo:html"
 
 
-# ---------------------------------------------------------------------------
-# SearchDecisionEngine — temporal pattern matching (Signal 1)
-# ---------------------------------------------------------------------------
-
-class TestSearchDecisionEngineTemporalPatterns:
-    @pytest.fixture
-    def engine(self):
-        return SearchDecisionEngine()
-
-    @pytest.mark.parametrize("query", [
-        "what is the score today",
-        "current version of Python",
-        "latest version of Django",
-        "who won the championship",
-        "Bitcoin price right now",
-        "weather forecast for tomorrow",
-        "breaking news this week",
-        "news about recently announced features",
-        "stock price today",
-        "who is the CEO of Tesla",
-        "match results this month",
-        "new release of macOS",
-        "exchange rate USD to EUR",
-        "playoff standings",
-        "who is the current president of Brazil",
-        "who owns OpenAI",
-        "what are the next fixtures for Arsenal",
-    ])
-    def test_temporal_query_triggers_search(self, engine, query):
-        should, reason = engine.should_search(query)
-        assert should is True
-        assert reason != ""
-
-    def test_temporal_reason_message(self, engine):
-        should, reason = engine.should_search("what is the Bitcoin price")
-        assert should
-        assert "current information" in reason
-
-
-# ---------------------------------------------------------------------------
-# SearchDecisionEngine — current-status patterns (leadership/ownership)
-# ---------------------------------------------------------------------------
-
-class TestSearchDecisionEngineCurrentStatus:
-    """
-    Current-status queries (CEO, president, ownership) are in _TEMPORAL_PATTERNS
-    and must trigger search even without explicit "latest/current" markers.
-    Timeless factual questions must NOT trigger search.
-    """
-
-    @pytest.fixture
-    def engine(self):
-        return SearchDecisionEngine()
-
-    @pytest.mark.parametrize("query", [
-        "who is the CEO of Apple",
-        "who is the current president of Brazil",
-        "who is the prime minister of the UK",
-        "who is the coach of Manchester City",
-        "who owns Twitter now",
-        "who runs OpenAI",
-        "current CEO of Tesla",
-        "current champion of the Champions League",
-        "who won the last election",
-    ])
-    def test_current_status_triggers_search(self, engine, query):
-        should, reason = engine.should_search(query)
-        assert should is True, f"Expected search for: {query!r}"
-
-    @pytest.mark.parametrize("query", [
-        # Attribution queries now intentionally trigger search to avoid hallucination
-        "who invented the telephone",
-        "who wrote Hamlet",
-        "who created PostVRP benchmarks",
-        "who made the first iPhone",
-        "who developed TensorFlow",
-        "who authored the attention is all you need paper",
-    ])
-    def test_attribution_queries_trigger_search(self, engine, query):
-        """Attribution queries trigger search — LLMs may hallucinate authorship."""
-        should, _ = engine.should_search(query)
-        assert should is True, f"Expected search for attribution query: {query!r}"
-
-    @pytest.mark.parametrize("query", [
-        "who are the best music composers of all time",
-        "who was the first president of the US",
-        "who discovered gravity",
-        "what is photosynthesis",
-        "what is the capital of France",
-        "create a directory named projects",
-        "can you check my system resources",
-        "install Python on my machine",
-        "show me running processes",
-    ])
-    def test_timeless_or_action_does_not_trigger_search(self, engine, query):
-        should, _ = engine.should_search(query)
-        assert should is False, f"Expected NO search for: {query!r}"
-
-
-# ---------------------------------------------------------------------------
-# SearchDecisionEngine — _looks_factual
-# ---------------------------------------------------------------------------
-
-class TestLooksFactual:
-    @pytest.mark.parametrize("query,expected", [
-        # Clear factual lookups → True
-        ("what is the speed of light", True),
-        ("who invented the telephone", True),
-        ("when was the Eiffel Tower built", True),
-        ("where is Mount Everest", True),
-        ("which language is fastest", True),
-        ("how many planets are in the solar system", True),
-        ("how much does it cost", True),
-        ("how old is the universe", True),
-        ("is there life on Mars", True),
-        ("does Python support async", True),
-        ("did the team win", True),
-        ("has the patch been released", True),
-        ("have you seen this", True),
-        ("tell me the latest Claude version", True),
-        ("can you tell me what are next games of Palmeiras", True),
-        ("could you tell me who won the match", True),
-        ("do you know who is the CEO of Google", True),
-        ("find me the best restaurants nearby", True),
-        # Action commands → False
-        ("can you check my system resources", False),
-        ("can you install Python", False),
-        ("could you run the tests", False),
-        ("can you update my config file", False),
-        ("can you check my disk usage", False),
-        ("please check the logs", False),
-        ("can you show me running processes", False),
-        ("can you help me install Docker", False),
-        # Non-factual starters → False
-        ("create a directory", False),
-        ("open my browser", False),
-        ("move the file", False),
-        ("hello there", False),
-    ])
-    def test_looks_factual(self, query, expected):
-        result = SearchDecisionEngine._looks_factual(query)
-        assert result == expected, f"_looks_factual({query!r}) expected {expected}"
-
-    def test_action_request_re_matches_action_verbs(self):
-        """_ACTION_REQUEST_RE must match common action commands."""
-        assert _ACTION_REQUEST_RE.match("can you check my disk")
-        assert _ACTION_REQUEST_RE.match("can you install Python")
-        assert _ACTION_REQUEST_RE.match("could you run the server")
-        assert _ACTION_REQUEST_RE.match("can you show me running processes")
-        assert _ACTION_REQUEST_RE.match("please stop the service")
-
-    def test_action_request_re_does_not_match_tell_me(self):
-        """'can you tell me' is a lookup, not an action."""
-        assert not _ACTION_REQUEST_RE.match("can you tell me who is the CEO")
-        assert not _ACTION_REQUEST_RE.match("could you tell me the price")
 
 
 # ---------------------------------------------------------------------------
@@ -652,64 +489,16 @@ class TestSearchRouting:
         assert results == fallback_results
 
 
-# ---------------------------------------------------------------------------
-# WebSearchTool — _classify_query
-# ---------------------------------------------------------------------------
-class TestQueryClassification:
-    """_classify_query routes to the right search category."""
-
-    @pytest.mark.parametrize("query,expected", [
-        ("what are next games of Palmeiras soccer team", "sports"),
-        ("NBA standings this week", "sports"),
-        ("who won the Champions League final", "sports"),
-        ("next match fixture for Barcelona", "sports"),
-        ("how to install Docker on Ubuntu", "tech"),
-        ("latest release of React framework", "tech"),
-        ("best Python library for async", "tech"),
-        ("claude LLM API usage", "tech"),
-        ("research paper on neural networks", "academic"),
-        ("arXiv survey on transformers", "academic"),
-        ("machine learning benchmark dataset", "academic"),
-        ("breaking news this week", "news"),
-        ("election results today", "news"),
-        ("what is the capital of France", "general"),
-        ("how many moons does Jupiter have", "general"),
-    ])
-    def test_classify_query(self, query, expected):
-        assert WebSearchTool._classify_query(query) == expected
-
-    def test_sports_re_matches_team_names(self):
-        assert _SPORTS_QUERY_RE.search("palmeiras match schedule") is not None
-        assert _SPORTS_QUERY_RE.search("real madrid vs barcelona") is not None
-
-    def test_tech_re_matches_dev_tools(self):
-        assert _TECH_QUERY_RE.search("kubernetes deployment yaml") is not None
-        assert _TECH_QUERY_RE.search("docker compose tutorial") is not None
-
-    def test_academic_re_matches_papers(self):
-        assert _ACADEMIC_QUERY_RE.search("arxiv paper on diffusion models") is not None
-        assert _ACADEMIC_QUERY_RE.search("deep learning benchmark") is not None
-
-    def test_news_re_matches_current_events(self):
-        assert _NEWS_QUERY_RE.search("election news today") is not None
-        assert _NEWS_QUERY_RE.search("breaking announcement") is not None
-
-    def test_academic_takes_priority_over_tech(self):
-        # "neural network" is academic; "python" alone is tech
-        assert WebSearchTool._classify_query("research paper on neural networks in python") == "academic"
-
-    def test_sports_takes_priority_over_news(self):
-        assert WebSearchTool._classify_query("breaking news on soccer match results") == "sports"
 
 
 # ---------------------------------------------------------------------------
 # WebSearchTool — _fallback_search deduplication and ordering
 # ---------------------------------------------------------------------------
 class TestFallbackSearch:
-    """Smart routing: only sources relevant to the query category are called."""
+    """Smart routing: category passed by caller selects the relevant sources."""
 
     def test_deduplicates_by_url(self):
-        # "python programming" → "tech" → sources: hackernews, github, wikipedia, rss
+        # category="tech" → sources: hackernews, github, wikipedia, rss
         tool = WebSearchTool()
         r1 = SearchResult(title="A", url="https://same.com", snippet="s1", source="wikipedia")
         r2 = SearchResult(title="A2", url="https://same.com", snippet="s2", source="hackernews")
@@ -718,38 +507,38 @@ class TestFallbackSearch:
              patch.object(tool, "_github_search", return_value=[r3]), \
              patch.object(tool, "_wikipedia_search", return_value=[r1]), \
              patch.object(tool, "_rss_search", return_value=[]):
-            results = tool._fallback_search("python programming library", 10)
+            results = tool._fallback_search("python programming library", 10, category="tech")
         urls = [r.url for r in results]
         assert urls.count("https://same.com") == 1
         assert len(results) == 2
 
     def test_respects_max_results(self):
-        # Generic query → "general" → sources: wikipedia, ddg, rss
+        # category="general" → sources: wikipedia, ddg, rss
         tool = WebSearchTool()
         many = [SearchResult(title=f"R{i}", url=f"https://r{i}.com", snippet="s", source="wikipedia") for i in range(10)]
         with patch.object(tool, "_wikipedia_search", return_value=many), \
              patch.object(tool, "_instant_answer", return_value=[]), \
              patch.object(tool, "_rss_search", return_value=[]):
-            results = tool._fallback_search("what is the capital of Brazil", 3)
+            results = tool._fallback_search("what is the capital of Brazil", 3, category="general")
         assert len(results) == 3
 
-    def test_sports_query_uses_wikipedia_reddit_rss(self):
-        # Sports category: wikipedia, reddit, rss — NOT hackernews, github, arxiv
+    def test_sports_category_uses_wikipedia_reddit_rss(self):
+        # Sports: wikipedia, reddit, rss — NOT hackernews, github, arxiv
         tool = WebSearchTool()
         with patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
              patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit, \
              patch.object(tool, "_rss_search", return_value=[]) as mock_rss, \
              patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
              patch.object(tool, "_github_search", return_value=[]) as mock_gh:
-            tool._fallback_search("palmeiras soccer match schedule", 5)
+            tool._fallback_search("palmeiras soccer match schedule", 5, category="sports")
         mock_wiki.assert_called_once()
         mock_reddit.assert_called_once()
         mock_rss.assert_called_once()
         mock_hn.assert_not_called()
         mock_gh.assert_not_called()
 
-    def test_academic_query_uses_semantic_scholar_arxiv_openalex_wikipedia(self):
-        # Academic category: semantic_scholar, arxiv, openalex, wikipedia — NOT hn, github, reddit
+    def test_academic_category_uses_semantic_scholar_arxiv_openalex_wikipedia(self):
+        # Academic: semantic_scholar, arxiv, openalex, wikipedia — NOT hn, github, reddit
         tool = WebSearchTool()
         with patch.object(tool, "_semantic_scholar_search", return_value=[]) as mock_ss, \
              patch.object(tool, "_arxiv_search", return_value=[]) as mock_arxiv, \
@@ -758,7 +547,7 @@ class TestFallbackSearch:
              patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
              patch.object(tool, "_github_search", return_value=[]) as mock_gh, \
              patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit:
-            tool._fallback_search("deep learning benchmark research paper", 5)
+            tool._fallback_search("deep learning benchmark research paper", 5, category="academic")
         mock_ss.assert_called_once()
         mock_arxiv.assert_called_once()
         mock_oa.assert_called_once()
@@ -767,85 +556,40 @@ class TestFallbackSearch:
         mock_gh.assert_not_called()
         mock_reddit.assert_not_called()
 
-    def test_tech_query_uses_hn_github_wikipedia_rss(self):
+    def test_tech_category_uses_hn_github_wikipedia_rss(self):
         tool = WebSearchTool()
         with patch.object(tool, "_hackernews_search", return_value=[]) as mock_hn, \
              patch.object(tool, "_github_search", return_value=[]) as mock_gh, \
              patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
              patch.object(tool, "_rss_search", return_value=[]) as mock_rss, \
              patch.object(tool, "_reddit_search", return_value=[]) as mock_reddit:
-            tool._fallback_search("docker kubernetes deployment python", 5)
+            tool._fallback_search("docker kubernetes deployment", 5, category="tech")
         mock_hn.assert_called_once()
         mock_gh.assert_called_once()
         mock_wiki.assert_called_once()
         mock_rss.assert_called_once()
         mock_reddit.assert_not_called()
 
+    def test_unknown_category_defaults_to_general(self):
+        """Unrecognised category falls back to general sources."""
+        tool = WebSearchTool()
+        with patch.object(tool, "_wikipedia_search", return_value=[]) as mock_wiki, \
+             patch.object(tool, "_instant_answer", return_value=[]) as mock_ddg, \
+             patch.object(tool, "_rss_search", return_value=[]) as mock_rss, \
+             patch.object(tool, "_hackernews_search") as mock_hn:
+            tool._fallback_search("some query", 5, category="cooking")
+        mock_wiki.assert_called_once()
+        mock_hn.assert_not_called()
 
-# ---------------------------------------------------------------------------
-# _TEMPORAL_RE — pattern completeness spot-check
-# ---------------------------------------------------------------------------
+    def test_search_passes_category_to_fallback(self):
+        """search() passes category= through to _fallback_search when no Brave key."""
+        tool = WebSearchTool()
+        tool._brave_key = ""
+        with patch.object(tool, "_fallback_search", return_value=[]) as mock_fb:
+            tool.search("test query", category="academic")
+        mock_fb.assert_called_once_with("test query", 5, category="academic")
 
-class TestTemporalPatterns:
-    @pytest.mark.parametrize("text", [
-        # Sports
-        "scores", "standings", "champion", "match", "final", "playoff",
-        "fixture", "upcoming game", "next match",
-        # Software versions
-        "latest version", "current version", "new version",
-        "new release", "changelog", "release notes",
-        # News
-        "today", "this week", "this month", "recently",
-        "news", "announced", "breaking",
-        # Prices
-        "price", "stock price", "crypto", "bitcoin",
-        "exchange rate",
-        # Weather
-        "weather", "forecast",
-        # Current status
-        "who is the CEO of Apple",
-        "who is the president of France",
-        "who owns the company",
-        "current champion of the league",
-        "who won the match",
-        # Entertainment / movies
-        "what are current movies in theater",
-        "what movies are playing now",
-        "now playing at the cinema",
-        "in theaters this weekend",
-        "new movies this week",
-        "box office results",
-        "what is showing at the theater",
-        "current series on Netflix",
-        "upcoming movie releases",
-        "what movies are in the cinemas",
-        # Attribution (to avoid hallucination on obscure items)
-        "who made PostVRP benchmarks",
-        "who created TensorFlow",
-        "who developed the BERT model",
-        "who wrote the attention is all you need paper",
-        "who invented the telephone",
-        "who authored this dataset",
-        "who designed the transformer architecture",
-        "who built this framework",
-    ])
-    def test_pattern_matches(self, text):
-        assert _TEMPORAL_RE.search(text) is not None, f"Expected match for: {text!r}"
 
-    @pytest.mark.parametrize("text", [
-        # Timeless questions — must NOT trigger search
-        "who are the best composers of all time",
-        "what is photosynthesis",
-        "how does a computer work",
-        "what is the capital of France",
-        "create a directory",
-        "can you check my system resources",
-        "install Python on my machine",
-        "who was the first president of the US",
-        "who discovered gravity",
-    ])
-    def test_timeless_does_not_match(self, text):
-        assert _TEMPORAL_RE.search(text) is None, f"Expected NO match for: {text!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -1076,45 +820,3 @@ class TestOpenAlexSearch:
         assert len(results) == 4
 
 
-# ---------------------------------------------------------------------------
-# Entertainment / movies temporal patterns
-# ---------------------------------------------------------------------------
-
-class TestEntertainmentPatterns:
-    """Movies and entertainment queries must trigger search."""
-
-    @pytest.fixture
-    def engine(self):
-        return SearchDecisionEngine()
-
-    @pytest.mark.parametrize("query", [
-        "what are current movies in theater",
-        "what movies are in theaters this weekend",
-        "now playing at the cinema",
-        "what's playing at the theater",
-        "box office results this week",
-        "what's showing at the cinema",
-        "new movies this month",
-        "upcoming movie releases",
-        "what movies are playing right now",
-        "current series on streaming",
-    ])
-    def test_entertainment_queries_trigger_search(self, engine, query):
-        should, reason = engine.should_search(query)
-        assert should is True, f"Expected search for: {query!r}"
-
-
-# ---------------------------------------------------------------------------
-# Academic query classification includes new patterns
-# ---------------------------------------------------------------------------
-
-class TestAcademicPatternExpansion:
-    @pytest.mark.parametrize("query", [
-        "find papers with doi 10.1234/test",
-        "peer reviewed research on transformers",
-        "conference proceedings on NLP",
-        "citation count for this paper",
-        "preprint on semantic scholar",
-    ])
-    def test_academic_re_matches_new_terms(self, query):
-        assert _ACADEMIC_QUERY_RE.search(query) is not None, f"Expected academic match: {query!r}"

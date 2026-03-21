@@ -109,10 +109,11 @@ class DeepSeekLLM:
         self.max_tokens = config_max_tokens or int(os.getenv("LLM_TOKENS", "8192"))
 
     def translate_intent(self, user_input: str, stream: bool = False) -> IntentIR:
+        from datetime import datetime
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": build_system_prompt()},
+                {"role": "system", "content": build_system_prompt(current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M"))},
                 {"role": "user", "content": user_input},
             ],
             max_tokens=self.max_tokens

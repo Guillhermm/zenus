@@ -115,11 +115,14 @@ class TestBuildSystemPrompt:
         assert "FileOps" in prompt or "AVAILABLE TOOLS" in prompt
 
     def test_base_string_present(self):
-        """_BASE constant is non-empty and part of the output"""
+        """_BASE template is non-empty and its content (after formatting) is part of the output"""
         assert len(_BASE) > 0
         with patch("zenus_core.brain.llm.system_prompt._build_tool_section", return_value=""):
-            result = build_system_prompt()
-        assert _BASE in result
+            result = build_system_prompt(current_datetime="2026-03-20 17:00")
+        # After formatting, the placeholder is replaced — check for stable content
+        assert "intent compiler" in result
+        assert "CURRENT DATE/TIME:" in result
+        assert "2026-03-20 17:00" in result
 
 
 # ---------------------------------------------------------------------------
