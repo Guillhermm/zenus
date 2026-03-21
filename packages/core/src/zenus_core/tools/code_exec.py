@@ -66,11 +66,14 @@ class CodeExec(Tool):
         """
         cwd = os.path.expanduser(working_dir) if working_dir else None
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(code)
-            script_path = f.name
+        fd = tempfile.mkstemp(suffix=".py")
+        try:
+            with os.fdopen(fd[0], "w", encoding="utf-8") as f:
+                f.write(code)
+            script_path = fd[1]
+        except Exception:
+            os.unlink(fd[1])
+            raise
 
         try:
             result = subprocess.run(
@@ -111,12 +114,15 @@ class CodeExec(Tool):
         """
         cwd = os.path.expanduser(working_dir) if working_dir else None
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".sh", delete=False, encoding="utf-8"
-        ) as f:
-            f.write("#!/usr/bin/env bash\nset -euo pipefail\n")
-            f.write(code)
-            script_path = f.name
+        fd = tempfile.mkstemp(suffix=".sh")
+        try:
+            with os.fdopen(fd[0], "w", encoding="utf-8") as f:
+                f.write("#!/usr/bin/env bash\nset -euo pipefail\n")
+                f.write(code)
+            script_path = fd[1]
+        except Exception:
+            os.unlink(fd[1])
+            raise
 
         os.chmod(script_path, 0o700)
 

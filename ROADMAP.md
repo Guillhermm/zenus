@@ -59,6 +59,50 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
 
 ---
 
+## Phase 1.5: Pre-Launch Hardening — target: by June 2026
+
+These items were identified before the first public release. All are prerequisite to promoting Zenus broadly: they close known gaps, harden security, and improve interoperability with the current AI tooling ecosystem.
+
+### 1.5.1 Security Audit & Hardening
+
+- [ ] **OWASP Top-10 audit** (`zenus_core/` full sweep)
+  - A01 Broken Access Control: review privilege tiers, sandbox escapes, path traversal
+  - A03 Injection: audit every shell-executing path for command injection; validate that user input never reaches `subprocess` without sanitization
+  - A06 Vulnerable Components: `pip-audit` / `safety` scan of all dependencies; pin and update anything with known CVEs
+  - A08 Software & Data Integrity: validate IntentIR schema enforces risk-level bounds and cannot be bypassed
+  - A09 Logging & Monitoring: ensure no secrets, API keys, or credentials are ever written to logs, history, or world-model
+  - Regression tests for every finding
+
+### 1.5.2 MCP (Model Context Protocol) Support
+
+- [ ] **MCP server mode**: expose Zenus tools as an MCP server so Claude Code, Cline, and other MCP-compatible clients can invoke Zenus tool implementations
+  - Implement `mcp_server.py` using the MCP Python SDK
+  - Map existing tool registry to MCP tool descriptors (name, description, input schema)
+  - Honour existing privilege tiers and sandboxing within MCP calls
+- [ ] **MCP client mode**: allow Zenus to consume external MCP servers as tool sources
+  - Discover and register MCP tools into the tool registry at startup
+  - `config.yaml` `mcp.servers` list for server addresses
+- [ ] Update `docs/TOOLS.md` and `docs/CONFIGURATION.md` with MCP setup guide
+
+### 1.5.3 Voice Completion
+
+- [ ] **TTS finalization** (`packages/voice/tts.py`)
+  - Piper TTS: complete streaming output (start speaking before LLM finishes)
+  - Voice profile support (speed, pitch) configurable via `config.yaml`
+  - Graceful fallback chain: Piper → system TTS (`espeak`) → silent
+- [ ] **Conversational flow** (`packages/voice/pipeline.py`)
+  - Clarifying questions mid-execution: pipeline pauses and speaks the question, waits for STT answer
+  - Natural interruption: detect "stop", "cancel", "wait" during TTS playback and halt execution
+  - Context carryover: pronouns and references ("do it again", "and then X") resolved against prior `VoiceSession` turns
+
+### 1.5.4 Parallel Execution — Benchmarks & UX
+
+- [ ] **Concrete benchmarks**: measure and document real wall-clock speedups for representative parallel workloads (batch file ops, multi-package install, concurrent git queries); publish results in `docs/PERFORMANCE.md`
+- [ ] **Execution plan visualization**: before execution, show which steps will run in parallel (dependency graph rendered in the TUI and as a Rich table in CLI)
+- [ ] **Parallel progress display**: when steps run concurrently, show live per-step status (running / done / failed) rather than a sequential list
+
+---
+
 ## Phase 2: Intelligence Amplification — target: by September 2026
 
 ### 2.1 Self-Improving AI
@@ -127,12 +171,12 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
   - Text-matching fallback (`TextFallbackDetector`) when openwakeword not installed
   - `voice/pipeline.py` — canonical `VoicePipeline` with wake→STT→Zenus→TTS loop
 
-- [ ] **Text-to-Speech**
+- [ ] **Text-to-Speech** *(in progress — Phase 1.5.3)*
   - Local TTS (Piper, Coqui)
   - Streaming TTS (start speaking before completion)
   - Voice profiles (user preferences)
 
-- [ ] **Conversational Flow**
+- [ ] **Conversational Flow** *(in progress — Phase 1.5.3)*
   - Clarifying questions mid-execution
   - Natural interruptions ("wait, stop")
   - Context carryover ("and then do X")
@@ -229,6 +273,8 @@ Dates are stated as **maximum targets**, not promises. Phase 1 was originally sc
   - Webhook callbacks
 
 ### 4.3 Development Tools
+
+- [ ] **MCP Integration** *(moved to Phase 1.5.2 — prioritized for pre-launch)*
 
 - [ ] **Code Operations**
   - Intelligent code generation
@@ -609,4 +655,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-03-20 (v1.1.0 — Brave Search primary backend + 7-source parallel fallback; orchestrator web search restructured to run before routing; SearchConfig added to schema)*
+*Last updated: 2026-03-21 (v1.1.0 — Phase 1.5 added: OWASP security audit, MCP support, voice completion, parallel execution benchmarks; LLM-based search classification replacing SearchDecisionEngine)*

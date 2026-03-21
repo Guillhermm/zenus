@@ -6,8 +6,24 @@ Network utilities: curl, wget, ping, ssh, etc.
 
 import subprocess
 import os
+from pathlib import Path
 from typing import Optional, Dict
 from zenus_core.tools.base import Tool
+
+_ALLOWED_URL_SCHEMES = ("http://", "https://", "ftp://", "ftps://")
+
+
+def _validate_url(url: str) -> None:
+    """Reject non-HTTP(S)/FTP URLs to prevent unexpected protocol abuse."""
+    if not any(url.lower().startswith(s) for s in _ALLOWED_URL_SCHEMES):
+        raise ValueError(
+            f"Unsupported URL scheme. Allowed: {', '.join(_ALLOWED_URL_SCHEMES)}"
+        )
+
+
+def _safe_output_path(output: str) -> str:
+    """Resolve an output file path to its canonical form."""
+    return str(Path(output).expanduser().resolve())
 
 
 class NetworkOps(Tool):
@@ -39,20 +55,25 @@ class NetworkOps(Tool):
             data: Request body (for POST/PUT)
             output: Save to file
         """
+        try:
+            _validate_url(url)
+        except ValueError as exc:
+            return f"Error: {exc}"
+
         cmd = ["curl", "-X", method]
-        
+
         if headers:
             for key, value in headers.items():
                 cmd.extend(["-H", f"{key}: {value}"])
-        
+
         if data:
             cmd.extend(["-d", data])
-        
+
         if output:
-            cmd.extend(["-o", os.path.expanduser(output)])
+            cmd.extend(["-o", _safe_output_path(output)])
         else:
             cmd.append("-s")  # Silent mode if not saving
-        
+
         cmd.append(url)
         
         try:
@@ -73,15 +94,20 @@ class NetworkOps(Tool):
     def wget(self, url: str, output: Optional[str] = None) -> str:
         """
         Download file with wget
-        
+
         Args:
             url: URL to download
             output: Output filename
         """
+        try:
+            _validate_url(url)
+        except ValueError as exc:
+            return f"Error: {exc}"
+
         cmd = ["wget"]
-        
+
         if output:
-            cmd.extend(["-O", os.path.expanduser(output)])
+            cmd.extend(["-O", _safe_output_path(output)])
         
         cmd.append(url)
         

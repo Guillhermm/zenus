@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from zenus_core.audit.logger import _mask_secrets, _mask_dict
 
 
 class IntentHistory:
@@ -28,7 +29,9 @@ class IntentHistory:
         
         self.history_dir = Path(history_dir)
         self.history_dir.mkdir(parents=True, exist_ok=True)
-        
+        # Restrict history directory to owner only
+        self.history_dir.chmod(0o700)
+
         # Current history file (daily)
         today = datetime.now().strftime("%Y-%m-%d")
         self.current_file = self.history_dir / f"intents_{today}.jsonl"
@@ -51,16 +54,25 @@ class IntentHistory:
         """
         entry = {
             "timestamp": datetime.now().isoformat(),
-            "user_input": user_input,
+            "user_input": _mask_secrets(user_input),
             "goal": intent.goal if hasattr(intent, 'goal') else str(intent),
             "steps_count": len(intent.steps) if hasattr(intent, 'steps') else 0,
             "success": success,
             "duration_seconds": 0,
-            "results": results
+            "results": [_mask_secrets(r) if isinstance(r, str) else r for r in results],
         }
-        
-        with open(self.current_file, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+        fd = os.open(self.current_file, flags, mode=0o600)
+        try:
+            with os.fdopen(fd, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
     
     def get_recent(self, limit: int = 10) -> List[Dict]:
         """Get recent intent executions"""

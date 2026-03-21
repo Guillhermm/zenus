@@ -31,7 +31,12 @@ class GitOps(Tool):
     """
 
     def _github_token(self) -> Optional[str]:
-        """Read GitHub token from environment or config"""
+        """Read GitHub token from environment only.
+
+        Tokens must never be stored in config.yaml (risk of accidental VCS
+        exposure). Use a .env file or the GITHUB_TOKEN / GH_TOKEN environment
+        variables instead — or HashiCorp Vault via SecretsManager.
+        """
         # Explicitly load .env files before reading env vars — do not rely on
         # the LLM factory having been imported first (tools can run without LLM)
         try:
@@ -45,22 +50,7 @@ class GitOps(Tool):
         except ImportError:
             pass
 
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        if not token:
-            try:
-                import yaml
-                # 5 levels up from packages/core/src/zenus_core/tools/ → project root
-                config_path = os.path.join(
-                    os.path.dirname(__file__), "..", "..", "..", "..", "..", "config.yaml"
-                )
-                config_path = os.path.normpath(config_path)
-                if os.path.exists(config_path):
-                    with open(config_path) as f:
-                        cfg = yaml.safe_load(f)
-                    token = cfg.get("github_token")
-            except Exception:
-                pass
-        return token
+        return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
     def _github_request(
         self,
@@ -72,7 +62,7 @@ class GitOps(Tool):
         """Make a GitHub API request"""
         token = token or self._github_token()
         if not token:
-            return {"error": "No GitHub token found. Set GITHUB_TOKEN environment variable or github_token in config.yaml"}
+            return {"error": "No GitHub token found. Set GITHUB_TOKEN or GH_TOKEN environment variable (or add it to ~/.zenus/.env)."}
 
         headers = {
             "Authorization": f"token {token}",

@@ -1,39 +1,51 @@
 import glob
 import os
 import shutil
+from pathlib import Path
 from zenus_core.tools.base import Tool
+
+
+def _resolve(path: str) -> str:
+    """Expand user and resolve the canonical path (follows symlinks).
+
+    Using resolve() instead of expanduser() alone means that traversal
+    sequences like ``../../etc/shadow`` and symlinks pointing outside the
+    intended directory are normalised before any operation is performed.
+    """
+    return str(Path(path).expanduser().resolve())
 
 
 class FileOps(Tool):
     name = "FileOps"
 
     def scan(self, path: str):
-        return os.listdir(os.path.expanduser(path))
+        return os.listdir(_resolve(path))
 
     def mkdir(self, path: str):
-        os.makedirs(os.path.expanduser(path), exist_ok=True)
+        os.makedirs(_resolve(path), exist_ok=True)
         return f"Directory created: {path}"
 
     def move(self, source: str, destination: str):
-        src_pattern = os.path.expanduser(source)
-        dst = os.path.expanduser(destination)
+        src_pattern = str(Path(source).expanduser())  # glob before resolve
+        dst = _resolve(destination)
 
-        for path in glob.glob(src_pattern):
-            shutil.move(path, dst)
+        matched = glob.glob(src_pattern)
+        for p in matched:
+            shutil.move(_resolve(p), dst)
         return f"Moved files matching {source} -> {destination}"
     
     def write_file(self, path: str, content: str):
         """
         Write content to file with support for large files
-        
+
         Args:
             path: File path
             content: Content to write (supports large strings)
-        
+
         Returns:
             Success message with file size
         """
-        full = os.path.expanduser(path)
+        full = _resolve(path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         
         # Write in chunks for large content (>10MB)
@@ -65,7 +77,7 @@ class FileOps(Tool):
 
 
     def touch(self, path: str):
-        full = os.path.expanduser(path)
+        full = _resolve(path)
         os.makedirs(os.path.dirname(full), exist_ok=True)
         open(full, "a").close()
         return f"File created: {path}"

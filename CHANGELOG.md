@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Secret masking in audit logs** (`audit/logger.py`, `memory/intent_history.py`): all user input, step args, and step results are now passed through `_mask_secrets()` before being written to disk. Patterns covering API keys (`sk-*`), bearer tokens, GitHub PATs (`ghp_*`), and generic `key=value` credentials are redacted with `[REDACTED]` placeholders.
+- **Owner-only file permissions on logs and history**: `~/.zenus/logs/` and `~/.zenus/history/` directories are created with mode `0o700`; all log and history files are opened with mode `0o600`, preventing other users on the system from reading sensitive execution data.
+- **URL scheme validation in NetworkOps** (`tools/network_ops.py`): `curl()` and `wget()` now reject non-HTTP(S)/FTP URLs (e.g. `file://`, `dict://`) before spawning a subprocess, preventing protocol-abuse attacks.
+- **Path resolution in FileOps** (`tools/file_ops.py`): all path arguments are now resolved via `Path.resolve()` before use, normalising `../` traversal sequences and resolving symlinks to their canonical targets.
+- **GitHub token env-only** (`tools/git_ops.py`): removed the `config.yaml` fallback for `github_token`. Tokens must come from `GITHUB_TOKEN` / `GH_TOKEN` environment variables or `~/.zenus/.env` — never from a config file that could be accidentally committed.
+- **Confirmation policy enforcement** (`safety/policy.py`, `orchestrator.py`): new `enforce_confirmation_policy()` function ensures any `IntentIR` with risk≥2 steps always has `requires_confirmation=True`, even if the LLM returns false. Called in `execute_command` immediately after intent translation.
+- **Temp file permissions** (`tools/code_exec.py`): Python and Bash scripts are now created with `tempfile.mkstemp()` (mode `0o600`) instead of `NamedTemporaryFile(delete=False)`, preventing other users from reading or replacing scripts between creation and execution.
+- 30 security regression tests in `tests/unit/test_security.py` covering all findings above.
+
+### Added
+- **MANIFESTO.md**: first-principles document explaining the Zenus philosophy — intent as the interface, structural safety, reversibility, local-first, and the long-term OS vision. Honest about what is and isn't done today.
+
+### Changed
+- **README**: repositioned as a natural language OS shell (not a coding assistant); added "Why Zenus?" section with the three key differentiators; long-term OS vision clearly framed as destination, not current state; knowledge graph and web search added to features; stale `v0.3.0-alpha` roadmap section replaced with accurate `v1.1.0` feature list.
+- **ROADMAP**: added Phase 1.5 (Pre-Launch Hardening) covering OWASP security audit, MCP support, voice TTS/conversational-flow completion, and parallel execution benchmarks/UX; Phase 3.1 voice items cross-referenced; Phase 4.3 MCP entry cross-referenced.
+
 ---
 
 ## [1.1.0] - 2026-03-21

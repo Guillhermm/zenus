@@ -58,6 +58,7 @@ from zenus_core.tools.privilege import PrivilegeTier
 from zenus_core.brain.knowledge_graph import get_knowledge_graph
 from zenus_core.output.execution_summary import build_execution_summary
 from zenus_core.tools.web_search import WebSearchTool, format_results_for_context
+from zenus_core.safety.policy import enforce_confirmation_policy
 
 
 class IntentTranslationError(Exception):
@@ -373,6 +374,9 @@ class Orchestrator:
                                 intent = self.llm.translate_intent(enhanced_input, stream=True)
                         else:
                             intent = self.llm.translate_intent(enhanced_input, stream=True)
+
+                        # Safety: force requires_confirmation for any modifying intent
+                        intent = enforce_confirmation_policy(intent)
 
                         # Cache the result
                         self.intent_cache.set(user_input, context, intent)

@@ -1,29 +1,58 @@
 # Zenus
 
-**An AI-mediated system layer that translates natural language into validated system operations.**
+**A natural language shell for Linux — where you describe what you want, and the system does it safely.**
 
-Zenus sits between you and the operating system. You describe what you want; Zenus figures out the right commands, checks them for safety, and executes them—tracking everything so mistakes can be undone.
+Zenus is not a coding assistant. It is a system operations layer: you tell it what you need done, it plans the safest way to do it, and every action is tracked so mistakes can be undone. It runs today on any Linux machine.
 
 ```bash
 $ zenus "organize my downloads by file type"
-✓ Plan executed successfully
+✓ Moved 47 files into 5 categories
 
 $ zenus "show me what's using the most CPU"
-✓ Top 5 processes displayed
+/home/user — Top 5 processes displayed
 
 $ zenus rollback
-✓ Successfully rolled back last action
+✓ Rolled back: moved 47 files back to ~/Downloads
+```
+
+```bash
+zenus > what's the latest stable version of Node.js?
+  Node.js 22.14.0 (LTS) was released on 2025-02-11.
+  Next LTS line (v24) is expected in October 2025.
+
+zenus > install it
+  [CREATE] Step 1: package.install (node, nodejs) ...
+  ✓ Installed Node.js 22.14.0
 ```
 
 ---
 
-## Long-term Vision
+## Why Zenus?
 
-Zenus is designed with a clear long-term trajectory: **become an operating system**.
+Most AI tools in the terminal are coding assistants — they read your files, generate code, and open pull requests. Zenus solves a different problem: **operating your system**. File management, process control, service administration, package installs, git workflows, network operations — the day-to-day work of running a Linux machine.
 
-Today, Zenus runs on top of Linux as an intent-execution layer. Over time, the architecture is intended to evolve into a full OS where the interface, scheduling, and system management are all mediated through intent rather than traditional commands. Every design decision — from the Intent IR contract to the sandboxed execution model — is made with that future in mind.
+Three things make Zenus different:
 
-The current release is **v1.1.0**, the foundation of that journey. It is a production-ready system that runs on any Linux machine today.
+**1. Intent IR — a typed contract between the LLM and your system.**
+Every command the LLM produces is validated against a strict schema before anything executes. No raw text ever reaches your shell. The schema encodes risk levels, required confirmations, and step dependencies. This is not a convenience — it is the architectural foundation for safe, auditable, eventually OS-grade execution.
+
+**2. Transaction-based rollback for system operations.**
+`zenus rollback` is not `git undo`. It undoes file moves, package installs, service restarts, and process kills — not just source code. Every operation is recorded as a reversible transaction before it runs.
+
+**3. Open source, local-first, multi-LLM.**
+Zenus works with Anthropic Claude, OpenAI, DeepSeek, and local models via Ollama. No vendor lock-in, no cloud dependency, no data sent anywhere you don't choose.
+
+---
+
+## The Long-Term Vision
+
+Zenus is designed with a clear destination: **become an operating system**.
+
+Today, Zenus is a Python layer running on Linux. The long-term architecture moves the AI intent layer closer to the hardware — where scheduling, memory management, and system policy are all mediated through intent rather than traditional syscalls. Every design decision made now (IntentIR, sandboxed execution, privilege tiers, the knowledge graph) is made with that future in mind.
+
+**v1.1.0 is the foundation** — a production-ready system shell you can use today. The OS is where we are going, not where we are. See [ROADMAP.md](ROADMAP.md) for the full phased plan and [MANIFESTO.md](MANIFESTO.md) for the philosophy behind it.
+
+The current release is **v1.1.0**, running on any Linux machine today.
 
 ---
 
@@ -122,6 +151,8 @@ graph LR
 - **Tree of Thoughts** — For high-stakes decisions, explores multiple solution paths and selects the best one by evaluating confidence, risk, and speed.
 - **Self-reflection** — Critiques its own plan before execution and revises if needed.
 - **Goal inference** — Identifies implied steps the user didn't explicitly mention (e.g. adding a backup before a destructive migration).
+- **LLM-classified web search** — The LLM decides when current data is needed (versions, scores, news) and searches automatically. Results are injected as context; you never need to ask Zenus to search.
+- **Knowledge graph** — Builds a persistent, typed entity-relationship graph from every executed action. Enables impact analysis: "what would be affected if I remove this service?".
 
 ### Memory and caching
 
@@ -318,23 +349,22 @@ pytest tests/unit/ -v
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
-### Current (v0.3.0-alpha)
-- Natural language to system operations
-- Parallel execution with dependency analysis
+### What's working now (v1.1.0)
+- Natural language → validated system operations (IntentIR contract)
+- Transaction-based undo/rollback (`zenus rollback`)
+- Dry-run mode — preview before any execution
+- Parallel execution with automatic dependency analysis
 - Failure learning and adaptive retry
-- Undo/rollback (transaction-based)
-- Optimization suggestions
-- 10 tool categories
-- Multi-LLM support (Anthropic, OpenAI, DeepSeek, Ollama)
-- TUI dashboard
-- Self-reflection and plan critique
-- Tree of Thoughts planning
-- Goal inference
+- 10+ tool categories (files, git, system, packages, network, browser…)
+- Multi-LLM support (Anthropic, OpenAI, DeepSeek, Ollama/local)
+- TUI dashboard, voice interface (STT), web search
+- Self-reflection, Tree of Thoughts, goal inference, knowledge graph
 
 ### Near-term
-- Voice interface stabilization
+- MCP (Model Context Protocol) support
+- Voice: TTS completion and conversational flow
+- Security audit (OWASP benchmark)
 - Plugin/skill system
-- Enhanced semantic search over history
 - Streaming output in TUI
 
 ### Long-term (toward Zenus as OS)
