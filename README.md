@@ -1,4 +1,19 @@
-# Zenus
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"  srcset="assets/wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/wordmark.svg">
+    <img src="assets/wordmark.svg" alt="Zenus" width="340">
+  </picture>
+
+  <br/>
+
+  [![Version](https://img.shields.io/badge/version-1.1.0-3b82f6?style=flat-square)](CHANGELOG.md)
+  [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-3b82f6?style=flat-square)](LICENSE)
+  [![Python](https://img.shields.io/badge/python-3.10%2B-3b82f6?style=flat-square)](https://python.org)
+  [![Coverage](https://img.shields.io/badge/coverage-89%25-3b82f6?style=flat-square)](docs/TEST_COVERAGE.md)
+</div>
+
+---
 
 **A natural language shell for Linux — where you describe what you want, and the system does it safely.**
 
