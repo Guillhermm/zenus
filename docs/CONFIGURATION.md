@@ -1,7 +1,7 @@
 # Configuration Guide
 
 **Status**: ✅ Complete | **Phase**: Foundation Hardening
-**Version**: 1.1.0
+**Version**: 1.2.0
 
 Modern configuration system with YAML support, profiles, and hot-reload.
 
@@ -337,6 +337,71 @@ All flags can also be set via environment variables (useful for a single session
 Legacy aliases still work: `ZENUS_SEARCH_DEBUG=1` maps to `debug.search`; `search.debug: true` in config also maps to the search flag.
 
 **Priority:** `config.yaml debug.*` → subsystem env var → master `ZENUS_DEBUG`. Setting the master switch enables all subsystems regardless of the individual flags.
+
+---
+
+## 🔌 MCP Integration
+
+Zenus supports the Model Context Protocol (MCP) as both server and client.
+
+### MCP Server (expose Zenus tools to external clients)
+
+```yaml
+mcp:
+  server:
+    enabled: false          # Set true to auto-start; or just run 'zenus mcp-server'
+    transport: stdio        # stdio (Claude Code/Cline) | sse (HTTP)
+    allow_privileged: false # Expose ShellOps/CodeExec — only in trusted environments
+    host: 127.0.0.1         # SSE bind address (ignored for stdio)
+    port: 8765              # SSE port (ignored for stdio)
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mcp.server.enabled` | bool | `false` | Whether `zenus mcp-server` auto-starts; mostly useful if wrapping Zenus programmatically |
+| `mcp.server.transport` | str | `"stdio"` | `"stdio"` for Claude Code/Cline subprocess; `"sse"` for HTTP-based clients |
+| `mcp.server.allow_privileged` | bool | `false` | Include `ShellOps` and `CodeExec` in the exposed tool set |
+| `mcp.server.host` | str | `"127.0.0.1"` | SSE bind host |
+| `mcp.server.port` | int | `8765` | SSE bind port |
+
+**Environment override:** `MCP_ALLOW_PRIVILEGED=1` enables privileged tools for the current session.
+
+**Adding Zenus to Claude Code:**
+```json
+{
+  "mcpServers": {
+    "zenus": {
+      "command": "zenus",
+      "args": ["mcp-server"]
+    }
+  }
+}
+```
+
+### MCP Client (consume external MCP servers)
+
+```yaml
+mcp:
+  client:
+    enabled: true
+    servers:
+      - name: filesystem          # tool-name prefix inside Zenus
+        transport: stdio
+        command: "uvx mcp-server-filesystem /home/user/docs"
+        env: {}                   # optional extra env vars for the subprocess
+      - name: remote
+        transport: sse
+        url: "http://localhost:8080/sse"
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mcp.client.enabled` | bool | `false` | Connect to external servers at startup |
+| `mcp.client.servers[].name` | str | — | Unique prefix; tools appear as `mcp__{name}__{tool}` |
+| `mcp.client.servers[].transport` | str | `"stdio"` | `"stdio"` or `"sse"` |
+| `mcp.client.servers[].command` | str | — | Subprocess command for stdio transport |
+| `mcp.client.servers[].url` | str | — | SSE endpoint URL |
+| `mcp.client.servers[].env` | dict | `{}` | Extra env vars for stdio subprocess |
 
 ---
 

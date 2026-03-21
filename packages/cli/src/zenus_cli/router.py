@@ -28,11 +28,12 @@ class CommandRouter:
     def parse(self, args: List[str]) -> CLICommand:
         """
         Parse command line arguments into a CLICommand
-        
+
         Modes:
         - No args or 'shell' -> interactive REPL
         - 'help' / '--help' / '-h' -> help message
         - 'version' / '--version' / '-v' -> version info
+        - 'mcp-server' -> start MCP server
         - 'rollback' -> rollback commands
         - 'history' -> history commands
         - '--dry-run <text>' -> show plan but do not execute
@@ -79,6 +80,29 @@ class CommandRouter:
         
         if args[0] == "status":
             return CLICommand(mode="status")
+
+        if args[0] == "mcp-server":
+            # zenus mcp-server [--transport stdio|sse] [--host H] [--port P] [--allow-privileged]
+            flags: dict = {}
+            i = 1
+            while i < len(args):
+                a = args[i]
+                if a == "--allow-privileged":
+                    flags["allow_privileged"] = True
+                elif a in ("--transport",) and i + 1 < len(args):
+                    flags["transport"] = args[i + 1]; i += 1
+                elif a.startswith("--transport="):
+                    flags["transport"] = a.split("=", 1)[1]
+                elif a == "--host" and i + 1 < len(args):
+                    flags["host"] = args[i + 1]; i += 1
+                elif a.startswith("--host="):
+                    flags["host"] = a.split("=", 1)[1]
+                elif a == "--port" and i + 1 < len(args):
+                    flags["port"] = int(args[i + 1]); i += 1
+                elif a.startswith("--port="):
+                    flags["port"] = int(a.split("=", 1)[1])
+                i += 1
+            return CLICommand(mode="mcp_server", flags=flags)
 
         if args[0] == "model":
             return CLICommand(
@@ -129,6 +153,7 @@ COMMANDS:
     model set <p> [model]   Set default provider (and optionally model)
     rollback [N]            Rollback last N actions (default: 1)
     history                 Show command history and failures
+    mcp-server              Start Zenus as an MCP server (exposes tools to Claude Code, Cline, …)
     help                    Show this help message
     version                 Show version information
     <direct command>        Execute command immediately
@@ -148,6 +173,12 @@ EXAMPLES:
     zenus --model claude-opus-4-6 "refactor src"  # Override model once
     zenus model set anthropic claude-opus-4-6     # Change default
     zenus --iterative "read project and improve"  # Multi-step ReAct loop
+
+MCP SERVER OPTIONS (zenus mcp-server):
+    --transport <t>         stdio (default) or sse
+    --host <host>           SSE bind host (default 127.0.0.1)
+    --port <port>           SSE bind port (default 8765)
+    --allow-privileged      Also expose ShellOps and CodeExec tools
 
 INTERACTIVE SHELL SHORTCUTS:
     @deepseek: your command    # Use deepseek for this command

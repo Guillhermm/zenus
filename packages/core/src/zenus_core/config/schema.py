@@ -172,6 +172,64 @@ class DebugConfig(BaseModel):
     )
 
 
+class MCPServerConfig(BaseModel):
+    """MCP server mode — expose Zenus tools to MCP-compatible clients."""
+
+    enabled: bool = Field(default=False, description="Start MCP server on 'zenus mcp-server'")
+    allow_privileged: bool = Field(
+        default=False,
+        description=(
+            "Expose privileged tools (ShellOps, CodeExec) over MCP. "
+            "Off by default; only enable in fully trusted environments."
+        ),
+    )
+    transport: str = Field(
+        default="stdio",
+        description="Transport layer: 'stdio' (default, for Claude Code / Cline) or 'sse'.",
+    )
+    host: str = Field(default="127.0.0.1", description="SSE host (only used when transport='sse')")
+    port: int = Field(default=8765, description="SSE port (only used when transport='sse')")
+
+
+class MCPExternalServer(BaseModel):
+    """An external MCP server that Zenus can consume as a tool source."""
+
+    name: str = Field(description="Unique name for this server (used as tool-name prefix)")
+    transport: str = Field(
+        default="stdio",
+        description="Transport: 'stdio' (subprocess) or 'sse' (HTTP).",
+    )
+    command: Optional[str] = Field(
+        default=None,
+        description="Shell command to launch a stdio server (e.g. 'uvx my-mcp-server').",
+    )
+    url: Optional[str] = Field(
+        default=None,
+        description="SSE endpoint URL (e.g. 'http://localhost:8080/sse').",
+    )
+    env: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Extra environment variables passed to the subprocess (stdio only).",
+    )
+
+
+class MCPClientConfig(BaseModel):
+    """MCP client mode — consume external MCP servers as tool sources."""
+
+    enabled: bool = Field(default=False, description="Enable MCP client at startup")
+    servers: List[MCPExternalServer] = Field(
+        default_factory=list,
+        description="List of external MCP servers to connect to at startup.",
+    )
+
+
+class MCPConfig(BaseModel):
+    """Model Context Protocol integration settings."""
+
+    server: MCPServerConfig = Field(default_factory=MCPServerConfig)
+    client: MCPClientConfig = Field(default_factory=MCPClientConfig)
+
+
 class ZenusConfig(BaseModel):
     """
     Main Zenus configuration
@@ -209,6 +267,9 @@ class ZenusConfig(BaseModel):
 
     # Debug output controls
     debug: DebugConfig = Field(default_factory=DebugConfig)
+
+    # MCP integration
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
     # Custom settings
     custom: Dict[str, Any] = Field(default_factory=dict, description="Custom settings")

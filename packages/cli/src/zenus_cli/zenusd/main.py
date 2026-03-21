@@ -113,6 +113,30 @@ def main():
                     console.print(f"    Status: {tx['status']}")
                     console.print()
         
+        elif command.mode == "mcp_server":
+            from zenus_core.config.loader import get_config
+            from zenus_core.mcp.server import run_server
+            cfg = get_config()
+            srv = cfg.mcp.server
+            # CLI flags override config
+            allow_privileged = command.flags.get("allow_privileged", srv.allow_privileged)
+            transport = command.flags.get("transport", srv.transport)
+            host = command.flags.get("host", srv.host)
+            port = command.flags.get("port", srv.port)
+            console.print(
+                f"[cyan]Starting Zenus MCP server[/cyan] "
+                f"(transport=[bold]{transport}[/bold], "
+                f"privileged=[bold]{allow_privileged}[/bold])"
+            )
+            if transport == "sse":
+                console.print(f"  Listening on [bold]{host}:{port}[/bold]")
+            run_server(
+                transport=transport,
+                host=host,
+                port=port,
+                allow_privileged=allow_privileged,
+            )
+
         elif command.mode == "direct":
             # Direct execution
             dry_run = command.flags.get("dry_run", False)

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **MCP server mode** (`zenus_core/mcp/server.py`): run `zenus mcp-server` to expose all Zenus tool actions as individual MCP tools. Tool names follow the `{ToolName}__{action_name}` convention (e.g. `FileOps__read_file`). Supports `stdio` transport (for Claude Code, Cline, Continue) and `sse` transport. Privilege tier STANDARD by default — ShellOps and CodeExec excluded unless `mcp.server.allow_privileged: true` (or `--allow-privileged` flag).
+- **MCP client mode** (`zenus_core/mcp/client.py`): connect to external MCP servers at startup via `mcp.client.servers` in `config.yaml`. Their tools are injected into the Zenus registry as `mcp__{server}__{tool}` and are transparently available to the orchestrator.
+- **`mcp` optional dependency** in `zenus-core` (`pip install 'zenus-core[mcp]'` or `pip install mcp`).
+- **`MCPConfig` schema** (`config/schema.py`): `mcp.server` and `mcp.client` sections with full Pydantic validation.
+- **`zenus mcp-server` CLI subcommand** with `--transport`, `--host`, `--port`, `--allow-privileged` flags.
+- **35 MCP tests** in `tests/unit/test_mcp.py` covering server build, tool registration, privilege enforcement, CLI parsing, and client lifecycle.
+
+---
+
 ### Security
 - **Secret masking in audit logs** (`audit/logger.py`, `memory/intent_history.py`): all user input, step args, and step results are now passed through `_mask_secrets()` before being written to disk. Patterns covering API keys (`sk-*`), bearer tokens, GitHub PATs (`ghp_*`), and generic `key=value` credentials are redacted with `[REDACTED]` placeholders.
 - **Owner-only file permissions on logs and history**: `~/.zenus/logs/` and `~/.zenus/history/` directories are created with mode `0o700`; all log and history files are opened with mode `0o600`, preventing other users on the system from reading sensitive execution data.

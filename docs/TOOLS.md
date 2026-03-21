@@ -437,6 +437,78 @@ sudo dnf install git  # Fedora
 
 ---
 
-**Version:** 0.4.0-alpha  
-**Last Updated:** 2026-02-20  
+## MCP Integration
+
+Zenus supports the **Model Context Protocol (MCP)** in both server and client modes.
+
+### MCP Server — expose Zenus tools to external clients
+
+Any MCP-compatible client (Claude Code, Cline, Continue, …) can call Zenus tools directly by connecting to the Zenus MCP server.
+
+**Start the server:**
+```bash
+zenus mcp-server                          # stdio transport (default — for Claude Code / Cline)
+zenus mcp-server --transport sse          # SSE transport (HTTP clients)
+zenus mcp-server --allow-privileged       # also expose ShellOps and CodeExec
+```
+
+**Tool naming convention:** `{ToolName}__{action_name}`
+
+| MCP Tool Name | Zenus Tool | Action |
+|---|---|---|
+| `FileOps__read_file` | FileOps | `read_file` |
+| `SystemOps__get_cpu_usage` | SystemOps | `get_cpu_usage` |
+| `GitOps__clone_repository` | GitOps | `clone_repository` |
+| `WebSearch__search` | WebSearch | `search` |
+| `ShellOps__run` *(privileged)* | ShellOps | `run` |
+
+By default, `ShellOps` and `CodeExec` are excluded. Enable them only in fully trusted, local environments via `--allow-privileged` or `mcp.server.allow_privileged: true` in `config.yaml`.
+
+**Configure in `config.yaml`:**
+```yaml
+mcp:
+  server:
+    enabled: false          # true to auto-start; or use 'zenus mcp-server' directly
+    transport: stdio        # stdio | sse
+    allow_privileged: false
+    host: 127.0.0.1         # SSE only
+    port: 8765              # SSE only
+```
+
+**Add to Claude Code (`~/.claude/claude_desktop_config.json`):**
+```json
+{
+  "mcpServers": {
+    "zenus": {
+      "command": "zenus",
+      "args": ["mcp-server"]
+    }
+  }
+}
+```
+
+### MCP Client — consume external MCP servers as tool sources
+
+Zenus can connect to external MCP servers at startup and expose their tools alongside native tools inside the orchestrator.
+
+**Configure in `config.yaml`:**
+```yaml
+mcp:
+  client:
+    enabled: true
+    servers:
+      - name: filesystem        # tool prefix: mcp__filesystem__*
+        transport: stdio
+        command: "uvx mcp-server-filesystem /home/user/docs"
+      - name: remote-tools
+        transport: sse
+        url: "http://localhost:8080/sse"
+```
+
+Remote tools are accessible inside Zenus as `mcp__{server_name}__{tool_name}` and are dispatched transparently by the orchestrator.
+
+---
+
+**Version:** 1.2.0
+**Last Updated:** 2026-03-21
 **Status:** Production-ready

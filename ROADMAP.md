@@ -65,24 +65,27 @@ These items were identified before the first public release. All are prerequisit
 
 ### 1.5.1 Security Audit & Hardening
 
-- [ ] **OWASP Top-10 audit** (`zenus_core/` full sweep)
-  - A01 Broken Access Control: review privilege tiers, sandbox escapes, path traversal
-  - A03 Injection: audit every shell-executing path for command injection; validate that user input never reaches `subprocess` without sanitization
-  - A06 Vulnerable Components: `pip-audit` / `safety` scan of all dependencies; pin and update anything with known CVEs
-  - A08 Software & Data Integrity: validate IntentIR schema enforces risk-level bounds and cannot be bypassed
-  - A09 Logging & Monitoring: ensure no secrets, API keys, or credentials are ever written to logs, history, or world-model
-  - Regression tests for every finding
+- [x] **OWASP Top-10 audit** ✅ (`zenus_core/` full sweep — v1.1.0)
+  - A01 Broken Access Control: privilege tiers reviewed; path traversal closed via `Path.resolve()`
+  - A03 Injection: URL scheme validation in NetworkOps; temp-file permissions hardened in CodeExec
+  - A08 Software & Data Integrity: `enforce_confirmation_policy()` ensures risk≥2 always requires confirmation
+  - A09 Logging & Monitoring: secret masking in audit logs and intent history; owner-only file permissions
+  - GitHub token restricted to env-only (no config.yaml fallback)
+  - 30 regression tests in `tests/unit/test_security.py`
 
 ### 1.5.2 MCP (Model Context Protocol) Support
 
-- [ ] **MCP server mode**: expose Zenus tools as an MCP server so Claude Code, Cline, and other MCP-compatible clients can invoke Zenus tool implementations
-  - Implement `mcp_server.py` using the MCP Python SDK
-  - Map existing tool registry to MCP tool descriptors (name, description, input schema)
-  - Honour existing privilege tiers and sandboxing within MCP calls
-- [ ] **MCP client mode**: allow Zenus to consume external MCP servers as tool sources
-  - Discover and register MCP tools into the tool registry at startup
-  - `config.yaml` `mcp.servers` list for server addresses
-- [ ] Update `docs/TOOLS.md` and `docs/CONFIGURATION.md` with MCP setup guide
+- [x] **MCP server mode** ✅ (`zenus_core/mcp/server.py` — v1.2.0)
+  - `FastMCP`-based server mapping every tool action to an MCP tool descriptor
+  - Tool names: `{ToolName}__{action_name}` (e.g. `FileOps__read_file`)
+  - Privilege tiers enforced: privileged tools (ShellOps, CodeExec) excluded by default
+  - Configurable via `mcp.server.*` in `config.yaml`; start with `zenus mcp-server`
+  - Supports `stdio` transport (Claude Code / Cline) and `sse` transport (HTTP clients)
+- [x] **MCP client mode** ✅ (`zenus_core/mcp/client.py` — v1.2.0)
+  - `MCPClientRegistry` discovers remote tools from external MCP servers at startup
+  - Tools injected as `mcp__{server}__{tool}` into the Zenus tool registry
+  - `config.yaml` `mcp.client.servers` list; `stdio` and `sse` transports supported
+- [x] Updated `docs/TOOLS.md` and `docs/CONFIGURATION.md` with MCP setup guide ✅
 
 ### 1.5.3 Voice Completion
 

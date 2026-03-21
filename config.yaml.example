@@ -145,6 +145,37 @@ debug:
   # Runtime: ZENUS_DEBUG_SEARCH=1
   search: false
 
+# MCP (Model Context Protocol) Integration
+# Zenus can run as an MCP server (so Claude Code / Cline can call Zenus tools)
+# and/or connect to external MCP servers as additional tool sources.
+mcp:
+  # --- Server mode ---
+  # Expose Zenus tools to any MCP-compatible client (Claude Code, Cline, etc.)
+  # Start with: zenus mcp-server
+  server:
+    enabled: false
+    # Expose privileged tools (ShellOps, CodeExec) over MCP.
+    # Only enable in fully trusted, local environments.
+    allow_privileged: false
+    # Transport: 'stdio' for Claude Code / Cline, 'sse' for HTTP clients.
+    transport: stdio
+    # SSE host/port (only used when transport: sse)
+    host: 127.0.0.1
+    port: 8765
+
+  # --- Client mode ---
+  # Connect to external MCP servers and expose their tools inside Zenus.
+  client:
+    enabled: false
+    servers: []
+    # Example entries:
+    # - name: filesystem          # unique prefix for this server's tools
+    #   transport: stdio
+    #   command: "uvx mcp-server-filesystem /home/user/docs"
+    # - name: remote-tools
+    #   transport: sse
+    #   url: "http://localhost:8080/sse"
+
 # Custom Settings (optional)
 custom:
   # Add your own settings here
