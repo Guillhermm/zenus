@@ -1,7 +1,7 @@
 # Zenus Configuration
 # Copy to ~/.zenus/config.yaml or ./zenus.yaml
 
-version: "1.1.0"
+version: "1.2.0"
 profile: dev  # dev, staging, or production
 
 # LLM Configuration

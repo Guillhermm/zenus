@@ -7,7 +7,7 @@
 
   <br/>
 
-  [![Version](https://img.shields.io/badge/version-1.1.0-3b82f6?style=flat-square)](CHANGELOG.md)
+  [![Version](https://img.shields.io/badge/version-1.2.0-3b82f6?style=flat-square)](CHANGELOG.md)
   [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-3b82f6?style=flat-square)](LICENSE)
   [![Python](https://img.shields.io/badge/python-3.10%2B-3b82f6?style=flat-square)](https://python.org)
   [![Coverage](https://img.shields.io/badge/coverage-89%25-3b82f6?style=flat-square)](docs/TEST_COVERAGE.md)
@@ -65,9 +65,9 @@ Zenus is designed with a clear destination: **become an operating system**.
 
 Today, Zenus is a Python layer running on Linux. The long-term architecture moves the AI intent layer closer to the hardware — where scheduling, memory management, and system policy are all mediated through intent rather than traditional syscalls. Every design decision made now (IntentIR, sandboxed execution, privilege tiers, the knowledge graph) is made with that future in mind.
 
-**v1.1.0 is the foundation** — a production-ready system shell you can use today. The OS is where we are going, not where we are. See [ROADMAP.md](ROADMAP.md) for the full phased plan and [MANIFESTO.md](MANIFESTO.md) for the philosophy behind it.
+**v1.2.0 is the foundation** — a production-ready system shell you can use today. The OS is where we are going, not where we are. See [ROADMAP.md](ROADMAP.md) for the full phased plan and [MANIFESTO.md](MANIFESTO.md) for the philosophy behind it.
 
-The current release is **v1.1.0**, running on any Linux machine today.
+The current release is **v1.2.0**, running on any Linux machine today.
 
 ---
 
@@ -179,6 +179,24 @@ graph LR
 - **Config hot-reload** — `config.yaml` changes are picked up at runtime without restarting; subsystems register callbacks to react to updates.
 - **Vault-backed secrets** — Secrets can be sourced from HashiCorp Vault KV v2 in addition to `.env` files; Vault values win over env vars.
 
+### Agentic harness (v1.2.0)
+
+- **Hook pipeline** — Run shell callbacks before or after any tool action. Pre-hooks that exit non-zero deny execution. Post-hooks fire asynchronously. Patterns use fnmatch (`"FileOps.delete_file"`, `"*"`).
+- **Plan mode** — `/plan` presents the full execution plan as a rich table and waits for your approval before any step runs. Auto-approves read-only plans when configured.
+- **Skills registry** — User-extensible slash commands from `*.md` files with YAML front-matter. Bundled skills: `/commit`, `/review-pr`, `/simplify`, `/explain`, `/test-coverage`. Discovery: bundled → `~/.zenus/skills/` → `.zenus/skills/`.
+- **Session store** — Persist and resume sessions at `~/.zenus/sessions/<id>.json` (owner-only). Auto-prune to `max_sessions`. `/session list/save/load/delete`.
+- **Context compactor** — `/compact` summarises intent history via LLM. Auto-triggers when context hits the configurable threshold.
+- **TaskOps** — Formal task lifecycle: `create`, `list`, `get`, `stop`, `output`, `purge`. Wraps the background queue with a user-visible, agent-addressable API. `/tasks` shell command.
+- **ScheduleOps** — Register cron jobs from within an execution plan. Remote HTTP webhook triggers with URL scheme validation.
+- **Git worktrees** — `WorktreeOps` creates isolated branches for risky work; auto-cleanup if no commits are made.
+- **NotebookOps** — Read and edit Jupyter `.ipynb` cells without a kernel: list, read, edit, add, delete, clear outputs.
+- **Developer tools** — `ToolSearch` (runtime registry search), `AskUserQuestion` (structured mid-plan user prompts), `SleepTool`, `/doctor` (10-check system health table), `/output-style`.
+
+### Interoperability (v1.2.0)
+
+- **MCP server** — `zenus mcp-server` exposes every tool action as an individual MCP tool (`FileOps__read_file`, etc.). Supports `stdio` transport (Claude Code, Cline, Continue) and `sse`. Privilege-gated: ShellOps/CodeExec excluded by default.
+- **MCP client** — Connect to external MCP servers at startup; their tools appear as `mcp__{server}__{tool}` in the registry, transparently available to the orchestrator.
+
 ---
 
 ## Installation
@@ -192,7 +210,7 @@ snap install --classic zenus
 Or download from [GitHub Releases](https://github.com/Guillhermm/zenus/releases) and install locally:
 
 ```bash
-snap install --classic --dangerous zenus_1.1.0_amd64.snap
+snap install --classic --dangerous zenus_1.2.0_amd64.snap
 ```
 
 ### pip

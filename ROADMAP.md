@@ -174,6 +174,57 @@ These items were identified before the first public release. All are prerequisit
 
 ---
 
+## Phase 1.7: Resilience, Observability & MCP Modernization — target: by December 2026
+
+Informed by the real Claude Code feature delta (v2.1.x), recent AI framework evolution (LangGraph 1.0, OpenAI Agents SDK), and academic research published in 2024–2025.
+
+### 1.7.1 Durable Execution & Recovery
+
+- [ ] **Per-step atomic checkpointing** — snapshot full execution state at every completed plan step to `~/.zenus/checkpoints/<session-id>/<step-n>.json`. If the process crashes mid-plan, `zenus --resume` picks up from the last checkpoint rather than restarting from scratch. Complements the session store (coarser-grained) without replacing it.
+  - *Source: LangGraph 1.0 persistence model, PydanticAI durable execution*
+
+- [ ] **VIGIL self-healing layer** — post-execution reflection that detects tool failure patterns, diagnoses the causal defect (bad argument, missing prereq, wrong path), and generates a targeted prompt patch or corrected tool invocation stored in a per-intent patch pool. Failed steps are automatically retried with the generated patch before surfacing an error to the user.
+  - *Source: arXiv 2512.07094 — VIGIL: Reflective Runtime for Self-Healing LLM Agents*
+
+- [ ] **HiAgent hierarchical compaction** — instead of compacting the entire context at the 80% threshold in one shot, compact per-completed-subgoal: as each plan step finishes, its fine-grained action-observation pair is summarised at the subgoal level. Keeps context lean and structured rather than producing one flat summary blob.
+  - *Source: HiAgent: Hierarchical Working Memory (2025)*
+
+### 1.7.2 Observability & Developer Experience
+
+- [ ] **`/context` token breakdown** — show per-tool and per-type (system, tool results, conversation) token usage with actionable optimization suggestions. Circuit breaker: auto-compaction disabled for the session after 3 consecutive failures. Real Claude Code had this added in v2.1.x.
+
+- [ ] **Session branching (`/branch` / `/fork`)** — branch the current conversation from any historical checkpoint into a parallel diverging session. Useful for exploring "what if I had approved the other plan?" without losing the current state. Builds on the session store and per-step checkpointing.
+  - *Source: real Claude Code v2.1.x `/branch` feature*
+
+- [ ] **Effort / adaptive thinking levels** — three session-level effort modes: `low` (fast, minimal reasoning), `normal` (default), `high` (extended thinking, ToT paths, deeper self-reflection). `ultrathink` keyword triggers `high` for the next turn only. Configurable per session and per skill via front-matter.
+  - *Source: real Claude Code effort system, v2.1.x*
+
+- [ ] **OTEL-compatible distributed trace export** — emit OpenTelemetry spans for every orchestrator decision, tool invocation, LLM call, and planning step. Compatible with Langfuse, Logfire, AgentOps, and any standard OTEL collector. Complements the existing `ExecutionLogger`; OTEL is additive, not a replacement.
+  - *Source: LangGraph 1.0, OpenAI Agents SDK — both export OTEL natively*
+
+### 1.7.3 Parallel Guardrail Layer
+
+- [ ] **Concurrent input/output guardrails** — a validation layer that runs in parallel with tool execution rather than sequentially inside the hook pipeline. Input guardrails can short-circuit before any tokens are consumed; output guardrails intercept every tool result. Fail-fast semantics: first failing guardrail aborts without waiting for others.
+  - *Source: OpenAI Agents SDK guardrail system; arXiv 2509.14285 multi-agent defense pipeline (0% attack success rate across 55 attack types)*
+
+### 1.7.4 MCP Modernization
+
+- [ ] **MCP Streamable HTTP transport** — replace the current SSE transport with the MCP Streamable HTTP specification (standardized March 2025). SSE transport deprecated; Streamable HTTP is the canonical bidirectional transport for HTTP-based MCP clients and servers.
+  - *Source: real Claude Code March 2025 MCP update*
+
+- [ ] **MCP Elicitation** — allow MCP server tools to request structured interactive input from the user via a typed dialog (text field, dropdown, confirmation). The Zenus orchestrator renders the elicitation prompt using the existing `AskUserQuestion` mechanism and returns the result to the MCP tool.
+  - *Source: real Claude Code MCP Elicitation, v2.1.x*
+
+- [ ] **Log-To-Leak MCP security audit** — new attack class: a malicious MCP tool injected into an agent's context causes the agent to invoke it as a logging side effect, exfiltrating secrets. Audit all paths where tool invocations can be sourced from tool *results* (not only from the user or LLM), and block or sandbox them. Security regression tests required.
+  - *Source: Log-To-Leak: MCP Prompt Injection (OpenReview)*
+
+### 1.7.5 Experiential Learning
+
+- [ ] **ERL heuristics pool** — after each completed session, generate 2–3 concise heuristics about what worked and what failed (e.g. "when deleting node_modules, always confirm the project root first"). Store in `~/.zenus/heuristics/`. On the next session with a similar intent (cosine similarity on the goal embedding), retrieve and inject the top-3 heuristics into the system prompt.
+  - *Source: arXiv 2603.24639 — Experiential Reflective Learning (ERL)*
+
+---
+
 ## Phase 2: Intelligence Amplification — target: by September 2026
 
 ### 2.1 Self-Improving AI
@@ -442,6 +493,94 @@ These items were identified before the first public release. All are prerequisit
   - Tenant isolation
   - Resource quotas per tenant
   - Billing integration
+
+---
+
+## Experiments: Research-Grade Concepts Under Exploration
+
+These ideas are grounded in peer-reviewed research published in 2024–2025 and in observed gaps between Zenus and the frontier of AI agent platform design. They are **not committed deliverables** — each requires a dedicated design spike before any implementation begins. They are listed here to preserve the research intent and to give future contributors a clear starting point.
+
+Unlike Phase 5.5 (which captures design concepts that emerged organically during v1.x development), this section tracks ideas explicitly sourced from academic papers and framework benchmarking.
+
+---
+
+### E.1 Memory Architecture Upgrades
+
+**A-MEM: Agentic Memory with Zettelkasten-Style Linking** — *arXiv 2502.12110*
+- Assign every memory note a unique ID, keyword set, and dynamic links to related notes. Retrieval follows link graphs rather than flat similarity search — significantly improves relevance for multi-hop queries.
+- Zenus already has a knowledge graph (entity → entity edges). A-MEM adds note → note linking at the memory level, orthogonal to the KG.
+- Design spike needed: how does A-MEM interact with the existing `intent_history.py` and `world_model.py`? Are they unified or layered?
+
+**Multi-Layered Memory (Working + Episodic + Semantic)** — *arXiv 2603.29194*
+- Three-tier hierarchy: working memory (active context, current session), episodic memory (per-session event log), semantic memory (long-term facts, currently the world model + knowledge graph). An adaptive retrieval gate decides which tier to query per turn.
+- Retention regularization prevents cross-session drift (the system "forgets" stale facts gracefully rather than accumulating noise).
+- Zenus has semantic and episodic elements but no formal working/episodic split with a retrieval gate.
+
+**TiMem: Temporal-Hierarchical Memory Tree** — *(2025)*
+- Memory tree that consolidates entries temporally: recent → session-level → project-level → long-term. No RL or fine-tuning required.
+- Valuable for users who run Zenus over long projects (weeks/months) where older context becomes noise but should not be fully discarded.
+
+**AgentHER: Hindsight Experience Replay** — *arXiv 2603.21357*
+- When a session fails to achieve goal G, retrospectively relabel the trajectory with the goal G' that it *actually achieved*, and store it as a positive example. Requires reverse-engineering a natural-language prompt that the actual trajectory satisfies.
+- Failed Zenus sessions currently produce only negative signal. AgentHER turns them into a source of positive training signal without any model fine-tuning.
+
+---
+
+### E.2 Planning and Reasoning Extensions
+
+**LATS: Language Agent Tree Search** — *arXiv 2310.04406*
+- Unifies ReAct, Tree of Thoughts, and Monte Carlo Tree Search into one framework operating at the *action* level (not the reasoning token level). The agent explores the action space with MCTS, backpropagating value estimates from execution outcomes.
+- Zenus's existing ToT implementation operates at the plan-generation level. LATS would extend it to search over actual tool-execution paths, not just candidate plans.
+- High complexity: requires execution rollback between MCTS simulations (pairs with per-step checkpointing from 1.7.1).
+
+**MAR: Multi-Agent Reflexion with Adversarial Validator** — *arXiv 2512.20845*
+- Separates acting, diagnosing, critiquing, and aggregating into distinct agents. A *judge model* synthesises critiques from diverse validator personas into a unified reflection, preventing the "echo chamber" failure of single-agent self-reflection.
+- Zenus's self-reflection loop could spawn a second LLM call as an adversarial critic before finalizing a plan.
+- Relatively low effort to prototype given Zenus already has multi-agent scaffolding.
+
+**Multi-Agent ToT Validator** — *arXiv 2409.11527*
+- A separate validator agent challenges Tree of Thoughts reasoning paths for logical and factual correctness. Reduces shared blind spots vs. single-agent reflection.
+- Simpler than full MAR; a good intermediate step.
+
+---
+
+### E.3 Tool Use Paradigm Shift
+
+**Code-as-Actions (smolagents CodeAgent pattern)**
+- Instead of producing JSON tool calls, the LLM writes Python code snippets that are executed directly. Function nesting, loops, and conditionals are handled natively by the code, not by the planner.
+- Demonstrated ~30% step reduction and higher benchmark scores vs. JSON tool-call agents on common benchmarks.
+- The IntentIR model is fundamentally JSON-structured; adopting Code-as-Actions would require a parallel execution path (not a replacement) to preserve safety guarantees. Design spike: how does risk assessment and rollback work for code-as-actions?
+
+---
+
+### E.4 Inter-Agent Interoperability
+
+**A2A Protocol (Google, v1.0 early 2026)**
+- Agent-to-Agent open standard: signed Agent Cards (capability declarations), gRPC transport, multi-tenancy support, peer-to-peer message exchange between agents on different frameworks.
+- Real Claude Code SDK (renamed Claude Agent SDK in late 2025) added A2A support as a bridge between MCP and inter-framework agent communication.
+- Zenus agents could expose an A2A endpoint to receive tasks from external orchestrators and return results, making Zenus composable with any A2A-compatible agent ecosystem.
+- Design spike: A2A + MCP coexistence; authentication model; privilege mapping.
+
+---
+
+### E.5 Agentic Retrieval and Knowledge Grounding
+
+**Agentic RAG with Knowledge Graph Multi-Hop Reasoning** — *arXiv 2507.16507*
+- Combines KG traversal with unstructured retrieval: the LLM proposes KG-grounded relation paths, validates them against the graph, performs stepwise reasoning along confirmed paths.
+- Zenus's knowledge graph is currently a storage and querying layer. This would make it an *active retrieval planner* that drives context construction for multi-hop questions.
+
+**HiPRAG: Hierarchical Process Rewards for Agentic RAG** — *arXiv 2510.07794*
+- Process reward models guide individual retrieval decisions at each reasoning step, outperforming flat retrieval pipelines on complex multi-hop tasks.
+- Research-grade: requires a trained reward model or adaptation of an open PRM. Worth revisiting as open PRMs become more available.
+
+---
+
+### E.6 Safety Research
+
+**Design Patterns for Securing LLM Agents** — *arXiv 2506.08837*
+- Formal taxonomy of prompt injection defense patterns with provable-resistance analysis: privilege separation, input validation gates, output canonicalization, sandboxed tool execution, dual-LLM verification.
+- Zenus's IntentIR "prison" implements several of these implicitly. A formal mapping — which patterns are active, which are partial, which are absent — would produce a concrete security hardening backlog.
+- Recommended action: assign a contributor to map the taxonomy against the current codebase and file issues for each gap.
 
 ---
 
@@ -768,4 +907,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-04-05 (v1.1.0 — Phase 1.6 added: systematic CC/claw-code harness analysis — hooks pipeline, plan mode, context compaction, multi-dir context, session resume, background task system, git worktree support, developer experience primitives, skills registry, notebook support; LSP integration added to Phase 4.3; session sharing, settings sync, GitHub/Slack app wizards added to Phase 5.1; upstream proxy and teleport added to Phase 7.1; extended thinking visualization and per-tool sandbox toggle added to Phase 8.1)*
+*Last updated: 2026-04-05 (v1.2.0 — Phase 1.6 complete; Phase 1.7 added: per-step checkpointing, VIGIL self-healing, HiAgent compaction, /context breakdown, /branch session branching, effort levels, OTEL tracing, parallel guardrails, MCP Streamable HTTP + Elicitation, Log-To-Leak audit, ERL heuristics pool; Experiments section added: A-MEM, multi-layered memory, TiMem, AgentHER, LATS, MAR, Code-as-Actions, A2A protocol, Agentic RAG with KG, HiPRAG, prompt injection defense patterns)*

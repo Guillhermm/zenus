@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (Phase 1.6)
+---
+
+## [1.2.0] - 2026-04-05
+
+### Added (agentic harness)
 - **Hook Pipeline** (`zenus_core/hooks/pipeline.py`): PreToolUse and PostToolUse shell callbacks configurable via `hooks.pre_tool_use` / `hooks.post_tool_use` in `config.yaml`. Pre-hooks that exit non-zero deny the tool action; post-hooks run asynchronously in a daemon thread so they never block execution. Patterns use fnmatch against `ToolName` or `ToolName.action_name` (e.g. `"FileOps.delete_file"`, `"*"`). Integrated into `brain/planner.py` with guarded try/except so hook failures never crash execution. 12 unit tests in `tests/unit/test_phase16_hooks.py`.
 - **Plan Mode** (`zenus_core/brain/plan_mode.py`): when enabled, Zenus presents a rich table of the full execution plan to the user and waits for approval (`y`/`yes`/`approve`/`ok`/`go`) before running any step. Auto-approves all-READ plans when `plan_mode.auto_approve_low_risk: true`. Returns `APPROVED`, `DENIED`, or `BYPASSED`. Thread-safe singleton (`get_plan_mode_manager()`). Toggle with `/plan` in the interactive shell. Integrated into `orchestrator.py` before execution. 10 unit tests in `tests/unit/test_phase16_plan_mode.py`.
 - **Skills Registry** (`zenus_core/skills/registry.py`): user-extensible slash commands loaded from `*.md` files with YAML front-matter (`name`, `trigger`, `description`). Discovery order: bundled → `~/.zenus/skills/` → `.zenus/skills/` (project-local, highest priority). Supports `{args}` substitution. 5 bundled skills: `commit`, `review-pr`, `simplify`, `explain`, `test-coverage`. Singleton via `get_skills_registry()`. `/skills` shell command lists and invokes skills. 12 unit tests in `tests/unit/test_phase16_skills.py`.
@@ -23,9 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Doctor command** (`zenus_core/shell/doctor.py`): `/doctor` runs 10 system-health checks (Python version, config, API keys, git, disk space, sessions dir, skills, hooks, plan mode, task queue) and renders results as a rich table.
 - **6 new config schema classes** in `config/schema.py`: `HookEntry`, `HooksConfig`, `PlanModeConfig`, `SkillsConfig`, `SessionConfig`, `OutputStyleConfig` — all added as fields on `ZenusConfig`. Full Pydantic validation with defaults.
 - **config.yaml.example** updated with all Phase 1.6 sections: `hooks`, `plan_mode`, `skills`, `session`, `output_style`.
-- **106 unit tests** across 6 new test files covering all Phase 1.6 features: `test_phase16_config.py`, `test_phase16_hooks.py`, `test_phase16_plan_mode.py`, `test_phase16_skills.py`, `test_phase16_session.py`, `test_phase16_tools.py`.
+- **106 unit tests** across 6 new test files: `test_config_schema_additions.py`, `test_hook_pipeline.py`, `test_plan_mode.py`, `test_skills_registry.py`, `test_session_store.py`, `test_agentic_tools.py`.
 
-### Added
+### Added (MCP)
 - **MCP server mode** (`zenus_core/mcp/server.py`): run `zenus mcp-server` to expose all Zenus tool actions as individual MCP tools. Tool names follow the `{ToolName}__{action_name}` convention (e.g. `FileOps__read_file`). Supports `stdio` transport (for Claude Code, Cline, Continue) and `sse` transport. Privilege tier STANDARD by default — ShellOps and CodeExec excluded unless `mcp.server.allow_privileged: true` (or `--allow-privileged` flag).
 - **MCP client mode** (`zenus_core/mcp/client.py`): connect to external MCP servers at startup via `mcp.client.servers` in `config.yaml`. Their tools are injected into the Zenus registry as `mcp__{server}__{tool}` and are transparently available to the orchestrator.
 - **`mcp` optional dependency** in `zenus-core` (`pip install 'zenus-core[mcp]'` or `pip install mcp`).
