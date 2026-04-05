@@ -749,6 +749,293 @@ These ideas emerged during v1.x development and will be revisited when Phase 5 i
 
 ---
 
+## Phase 8.5: Zenus-Native Intelligence Layer — target: after Zenus reaches stable maturity
+
+The long-term goal of Zenus is to become an operating system. An OS cannot depend on a third-party API for its core cognitive layer. This phase builds the Zenus-native model: a small, domain-optimised language model trained specifically on Zenus's task domain, designed to run entirely locally without internet access or API keys, and continuously improved by real usage data. It replaces the `rule_based` fallback in the provider chain with something substantially more capable, and eventually becomes the primary engine for cost-sensitive and privacy-sensitive deployments.
+
+**Prerequisites**: Zenus must be feature-stable (Phases 1–8 substantially complete), with at minimum several hundred real users generating execution data. The training pipeline described here requires a corpus of real intent→plan pairs to reach meaningful quality above the fine-tuned baseline.
+
+---
+
+### 8.5.1 Task Framing and Scope
+
+The Zenus model does **not** need to be a general-purpose language model. Its task domain is precisely defined:
+
+```
+Input  → Natural language user command + system context
+               (working directory, OS, git status, session history)
+Output → Valid IntentIR JSON
+               { goal, steps[{ tool, action, args, risk }],
+                 requires_confirmation, search_provider, is_question }
+```
+
+This is a **structured output problem over a fixed schema with ~25 tool types and ~120 actions**. The search space is orders of magnitude smaller than general instruction following. A 1–3B parameter model fine-tuned on this task can outperform a 70B general model on it, because:
+- The output grammar is formally specified (Pydantic schema)
+- Invalid outputs are immediately detectable and retryable
+- Every production execution produces a labeled training example automatically
+
+---
+
+### 8.5.2 Training Data Pipeline
+
+Zenus is its own training data generator. Every executed command produces:
+```
+(user_input, system_context) → IntentIR → execution_results → success/failure
+```
+
+This is a labeled `(input, structured_output, quality_signal)` triple — exactly what supervised fine-tuning and RLHF require.
+
+**Bootstrap dataset (pre-launch, synthetic)**
+- [ ] Write 500 diverse user command templates covering all Zenus tool categories: file management, system ops, git workflows, package management, networking, scheduling, notebooks, voice commands
+- [ ] Expand to **50,000 instruction pairs** using a frontier model (DeepSeek-V3 or Claude) as the oracle teacher. Cost: ~$100–150 at frontier model API rates
+- [ ] For each example, generate: the ideal IntentIR, two common error variants (wrong tool, wrong risk level), and the corrected recovery plan
+- [ ] Include edge cases: ambiguous commands, multi-step plans with dependencies, risk=3 operations requiring confirmation, Q&A intents that should set `is_question=true`
+- [ ] Format as instruction-tuning pairs: system prompt (Zenus context) + user turn + assistant turn (IntentIR JSON)
+- [ ] Hold out 5,000 examples for evaluation; never used in training
+
+**Production data flywheel (post-launch)**
+- [ ] Instrument `orchestrator.py` to log every `execute_command` call with: anonymized input, produced IntentIR, execution outcome, any user rollback signal
+- [ ] Treat successful executions (no rollback, no error) as positive examples
+- [ ] Treat rolled-back or error-terminated executions as negative examples with structured failure labels
+- [ ] Consent model: opt-in by default, configurable via `config.yaml model_training.contribute_data: false`
+- [ ] Local-only mode: data stays on-device and is used only for local model retraining; never uploaded unless user explicitly enables telemetry
+- [ ] Monthly retraining batch: collect new examples → filter by quality threshold → merge with previous dataset → retrain LoRA adapter
+
+**Data quality gates**
+- [ ] Schema validation: every generated IntentIR must parse against the live Pydantic schema
+- [ ] Risk consistency: verify that risk levels match tool action risk tables (no `delete_file` at risk=0)
+- [ ] Deduplication: fuzzy dedup on user inputs using MinHash LSH to prevent overfitting to repeated patterns
+- [ ] Human review sample: 1% random sample reviewed manually per training batch
+
+---
+
+### 8.5.3 Tokenizer Design
+
+Standard BPE tokenizers are English-optimized and waste tokens on Zenus's domain. The plan:
+
+**Custom SentencePiece unigram tokenizer**
+- [ ] Collect training corpus: Zenus source code + generated IntentIR dataset + tool documentation + config YAML files
+- [ ] Train SentencePiece unigram tokenizer, vocabulary size **24,576 tokens** (24K general + 512 reserved for domain specials)
+- [ ] Validate: measure average tokens-per-IntentIR on held-out set; target ≥35% reduction vs. base model tokenizer
+
+**Domain special tokens**
+```
+<|intent_start|>   <|intent_end|>
+<|step_start|>     <|step_end|>
+<|goal|>           <|tool|>        <|action|>      <|args|>
+<|risk_0|>         <|risk_1|>      <|risk_2|>      <|risk_3|>
+<|requires_confirm|>  <|is_question|>  <|search_web|>
+<|context_start|>  <|context_end|>
+```
+
+- [ ] These tokens collapse frequently recurring multi-token patterns into single tokens. `<|risk_3|>` replaces `"risk": 3` (4 tokens → 1)
+- [ ] Embed new tokens by averaging the embeddings of their constituent sub-tokens at initialisation; this gives non-random starting weights and accelerates training convergence
+- [ ] Add domain tokens to the base model vocabulary via embedding table extension before fine-tuning
+
+---
+
+### 8.5.4 Base Model Selection and Fine-Tuning
+
+**Candidate base models**
+
+| Model | Params | License | Rationale |
+|---|---|---|---|
+| **Qwen2.5-3B-Instruct** | 3B | Apache 2.0 | Best 3B class; strong JSON/structured output; active development |
+| **Llama-3.2-3B-Instruct** | 3B | Llama (commercial OK) | Wide tooling support; best GGUF ecosystem |
+| **SmolLM2-1.7B-Instruct** | 1.7B | Apache 2.0 | Smallest viable; good for resource-constrained fallback |
+| **DeepSeek-R1-Distill-Qwen-7B** | 7B | MIT | Already distilled reasoning; best quality ceiling; higher resource cost |
+
+Primary target: **Qwen2.5-3B-Instruct** (best quality-to-size ratio at 3B, Apache 2.0 allows unrestricted commercial use).
+
+**Training method: QLoRA + supervised fine-tuning**
+- [ ] Quantize base model to 4-bit (NF4) using bitsandbytes; this is the "QL" part of QLoRA
+- [ ] Add LoRA adapter layers (r=64, alpha=128) to all attention projection matrices (q_proj, k_proj, v_proj, o_proj) and MLP layers
+- [ ] Train only the adapter weights (~40M parameters out of 3B); base model weights frozen
+- [ ] Hardware requirement: **1× GPU with 24GB VRAM** (RTX 4090, A10G, or A100 40GB). All are available on Lambda Labs / Vast.ai / RunPod
+- [ ] Training framework: **Axolotl** (handles QLoRA, custom tokenizer extension, gradient checkpointing, Flash Attention 2) or **LLaMA-Factory**
+- [ ] Training hyperparameters: batch_size=4, grad_accum=8, lr=2e-4, warmup_ratio=0.05, 3 epochs, cosine scheduler
+- [ ] Estimated training time: **8–12 hours** on A10G for 50K examples × 3 epochs
+- [ ] Checkpoint every 500 steps; evaluate on held-out set after each epoch
+
+**Evaluation metrics**
+- [ ] IntentIR schema validity rate (target: >99% — invalid JSON is immediate fail)
+- [ ] Tool accuracy: correct tool selected for intent (target: >92%)
+- [ ] Action accuracy: correct action selected given tool (target: >90%)
+- [ ] Risk level accuracy: correct risk assigned (target: >95% — risk errors are safety-relevant)
+- [ ] `is_question` F1: correctly classifies Q&A vs. execution intents (target: >93%)
+- [ ] Compare against: current Ollama fallback (Llama-3.2-3B vanilla), rule_based fallback
+
+---
+
+### 8.5.5 Distillation from Frontier Teacher
+
+Beyond SFT, apply **knowledge distillation** to transfer reasoning quality from a frontier model:
+
+- [ ] Generate a **distillation dataset** separately from the SFT data: for each training example, record the full **logit distribution** (not just the top token) from the frontier teacher (Claude or GPT-4) over the IntentIR output sequence
+- [ ] Train the student (Qwen2.5-3B) to minimize KL divergence from teacher logits, not just cross-entropy on the correct token. This teaches the student the teacher's uncertainty distribution — it learns *which alternatives are plausible* not just *which answer is right*
+- [ ] Loss function: `L = α × CE(student, label) + (1-α) × KL(student_logits ∥ teacher_logits)`, with α=0.5
+- [ ] This is exactly the technique behind DeepSeek's distilled models: the student inherits reasoning patterns the teacher learned, not just answers
+
+---
+
+### 8.5.6 Inference Efficiency Stack
+
+**Quantization for CPU deployment**
+- [ ] After fine-tuning, merge LoRA adapter into base model weights (full-precision merge)
+- [ ] Quantize to GGUF format using `llama.cpp/convert_hf_to_gguf.py`
+- [ ] Target format: **Q4_K_M** (4-bit, mixed precision on "important" layers — attention and first/last MLP layers kept at Q6)
+- [ ] Expected model size: **~1.8GB** for 3B Q4_K_M
+- [ ] Expected CPU throughput: 15–30 tok/s on modern laptop CPU (Intel Core i7 / Apple M-series)
+- [ ] Validate: measure perplexity delta vs. BF16 on IntentIR eval set; acceptable threshold <5% degradation
+
+**LLMLingua context compression (input side)**
+- [ ] Integrate **LLMLingua-2** (Microsoft, Apache 2.0) as a pre-processor step before any LLM call in the provider chain — not just the Zenus model
+- [ ] LLMLingua uses a small 250M-parameter model to score token importance; low-importance tokens in the context (session history, world model facts, system prompt boilerplate) are dropped
+- [ ] Target compression ratio: 4–8× on context; keep all user-turn content intact; compress assistant turns and tool results
+- [ ] Integration point: `brain/llm/base.py` — add `compress_context()` hook called before `translate_intent()` when context exceeds a configurable token threshold
+- [ ] Config key: `model_training.context_compression: true` (default false, opt-in)
+
+**Speculative decoding with a 0.5B drafter**
+- [ ] After the 3B model is stable, distill a **0.5B speculative draft model** from it using the same pipeline at smaller scale
+- [ ] The drafter proposes 4–8 candidate tokens per step; the 3B verifier accepts or rejects in a single forward pass
+- [ ] Net effect: **2–3× throughput increase** with identical output quality (mathematically equivalent to running the 3B alone)
+- [ ] llama.cpp supports speculative decoding natively via `--draft-model` flag; no Zenus code changes needed
+
+**Serving via llama-server (OpenAI-compatible)**
+- [ ] Serve the GGUF model with `llama-server` (ships with llama.cpp), which exposes an OpenAI-compatible REST API on localhost
+- [ ] Zenus's existing `OllamaLLM` backend works with any OpenAI-compatible endpoint — point it at `http://localhost:8080` instead of `http://localhost:11434`
+- [ ] Alternatively: package the GGUF with `ollama create zenus-3b -f Modelfile` and serve via Ollama for zero-config user experience
+
+---
+
+### 8.5.7 Zenus Integration
+
+**Fallback chain placement**
+```yaml
+# config.yaml
+llm:
+  provider: anthropic      # primary
+
+fallback:
+  providers:
+    - anthropic            # frontier quality, API required
+    - deepseek             # fast, cheap, API required
+    - zenus-native         # local, no API, no internet — this phase
+    - rule_based           # deterministic last resort
+```
+
+**New LLM backend: `ZenusNativeLLM`**
+- [ ] Implement `zenus_core/brain/llm/zenus_native.py` extending `BaseLLM`
+- [ ] On init: check if `zenus-3b` model exists in Ollama registry or if llama-server is running; skip gracefully if not installed
+- [ ] `translate_intent()`: call llama-server with the Zenus system prompt; parse response against IntentIR schema; on schema validation failure, retry once with an error-correction prompt ("the previous response was invalid JSON: {error}. Correct it and return only valid JSON")
+- [ ] `ask()`: pass directly to model as a Q&A prompt; no IntentIR wrapping
+- [ ] Expose `zenus model install` CLI command: downloads the GGUF, sets up Ollama model, tests inference, adds to provider chain
+
+**Model management commands**
+- [ ] `zenus model status` — show which local models are installed, their sizes, and benchmark scores
+- [ ] `zenus model install [zenus-3b|zenus-1.7b]` — download from Zenus releases, install via Ollama
+- [ ] `zenus model benchmark` — run the held-out eval set against local model, print accuracy metrics
+- [ ] `zenus model retrain` — (advanced) trigger a local retraining cycle using accumulated on-device data
+
+---
+
+### 8.5.8 Continuous Improvement via Reinforcement Learning
+
+Once the base fine-tuned model is deployed, upgrade from SFT to RL-based training using Zenus itself as the reward environment:
+
+**Reward signal design**
+```
++1.0  → Execution completed successfully, no rollback, no user correction
++0.5  → Execution completed with minor user edit (one step changed)
+ 0.0  → Execution abandoned mid-way (neutral)
+-0.5  → Tool error (wrong args, missing prereq)
+-1.0  → User issued rollback immediately after execution
+-1.5  → Safety policy rejection (risk level misclassified upward)
+```
+
+- [ ] Implement reward logging in `brain/planner.py` and `shell/commands.py`; attach reward signal to the IntentIR that produced the execution
+- [ ] Buffer rewards locally in `~/.zenus/rl_buffer/` as structured JSONL
+- [ ] Training algorithm: **GRPO** (Group Relative Policy Optimization — used by DeepSeek-R1) over LoRA adapter weights; computationally lighter than PPO for structured output tasks
+- [ ] Retrain monthly: collect ≥1,000 new reward-labeled examples → run 1 GRPO epoch → merge adapter → requantize → push updated GGUF to local Ollama registry
+- [ ] Guard: never allow RL to reduce schema validity rate below 98%; if it does, revert to the last SFT checkpoint
+
+**AgentHER retrospective relabeling** *(from Experiments section)*
+- [ ] When a session fails to achieve goal G, retrospectively relabel the trajectory with the goal G' it *actually achieved* and store as a positive training example
+- [ ] Requires: a small post-session analysis step that asks the frontier model "given these execution results, what goal was actually accomplished?" and produces a new (input, IntentIR) pair with G' as the goal
+- [ ] This converts every failed session from a negative signal into two signals: a negative on G and a positive on G'
+
+---
+
+### 8.5.9 Future Research Paths (post-v1 model)
+
+These require the base pipeline to be working first and are research-grade:
+
+**Coconut-style latent planning**
+- Replace the token-by-token IntentIR generation with continuous-thought reasoning: the model generates a fixed number of latent state vectors (one per plan step), then decodes them all into the final IntentIR JSON simultaneously
+- Expected benefit: more globally coherent plans, fewer step-level inconsistencies, faster generation (parallel decode)
+- Requires: architectural modification to the model (adding latent "thinking step" positions to the forward pass); custom training objective
+- *Source: arXiv 2412.06769 — Coconut: Chain of Continuous Thought (Meta AI, 2024)*
+
+**Per-domain micro-vocabulary specialization**
+- Instead of one Zenus tokenizer, train separate tokenizer extensions per domain: one for file/system ops, one for git workflows, one for network/API tasks
+- At inference, select the domain tokenizer based on the classified intent category
+- Expected benefit: 40–60% further token reduction for in-domain commands
+
+**BitNet ternary weights from scratch**
+- If the 3B fine-tuned model is working well and the training pipeline is mature, experiment with training a smaller (~1B) model from scratch using BitNet b1.58 ternary weights {-1, 0, 1}
+- Ternary weights eliminate multiplications in inference: all operations become additions. On a purpose-built RISC-V extension or FPGA, this could run at 10–100× the throughput of Q4 quantized models
+- The 1B ternary model would be ~180MB on disk — a realistic embedded component for the OS phase
+
+---
+
+### 8.5.10 Resource Requirements and Cost Estimates
+
+**Hardware**
+
+| Task | Hardware | Source | Cost |
+|---|---|---|---|
+| Synthetic data generation (50K examples) | Any machine with internet | Claude/DeepSeek API | $100–200 |
+| Tokenizer training | CPU, any machine | — | $0 |
+| QLoRA fine-tuning | 1× A10G (24GB) | Lambda Labs / RunPod | $10–20 (10 hours) |
+| Distillation dataset generation | API | Frontier model API | $50–100 |
+| Evaluation runs | 1× A10G | Lambda Labs | $5–10 |
+| GGUF quantization | CPU | — | $0 |
+| **Total (first working model)** | | | **$165–330** |
+| Monthly RL retraining cycle | 1× A10G, 3–4 hours | Lambda Labs | $5–10/month |
+
+**Time**
+
+| Phase | Duration (solo, part-time) | Duration (solo, full-time) |
+|---|---|---|
+| Data pipeline + synthetic generation | 2 weeks | 1 week |
+| Tokenizer design + vocabulary extension | 1 week | 3 days |
+| QLoRA fine-tuning + evaluation iterations | 2 weeks | 1 week |
+| Distillation dataset + distillation run | 1 week | 3 days |
+| GGUF quantization + Zenus integration | 1 week | 3 days |
+| Testing, edge cases, benchmarking | 1 week | 3 days |
+| **Total to first deployable model** | **8 weeks** | **4 weeks** |
+
+**Ongoing maintenance**: ~4 hours/month to curate new training data, run retraining, validate metrics.
+
+---
+
+### 8.5.11 Success Criteria
+
+The Zenus-native model is ready for production fallback when it meets all of:
+
+- [ ] IntentIR schema validity: **≥ 99%** on held-out eval set (1,000 examples)
+- [ ] Tool selection accuracy: **≥ 92%**
+- [ ] Action accuracy: **≥ 90%**
+- [ ] Risk level accuracy: **≥ 95%** (safety-critical)
+- [ ] `is_question` F1: **≥ 93%**
+- [ ] CPU throughput: **≥ 10 tok/s** on a modern laptop CPU (i7 / Ryzen 7)
+- [ ] Model size: **≤ 2GB** on disk
+- [ ] Cold start: **≤ 3 seconds** to first token on CPU
+- [ ] Outperforms `rule_based` fallback on all metrics
+- [ ] Does not regress Zenus's overall test suite (3,033 tests passing)
+
+---
+
 ## Phase 9: Beyond Terminals — target: by June 2028
 
 ### 9.1 New Interfaces
@@ -907,4 +1194,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-04-05 (v1.2.0 — Phase 1.6 complete; Phase 1.7 added: per-step checkpointing, VIGIL self-healing, HiAgent compaction, /context breakdown, /branch session branching, effort levels, OTEL tracing, parallel guardrails, MCP Streamable HTTP + Elicitation, Log-To-Leak audit, ERL heuristics pool; Experiments section added: A-MEM, multi-layered memory, TiMem, AgentHER, LATS, MAR, Code-as-Actions, A2A protocol, Agentic RAG with KG, HiPRAG, prompt injection defense patterns)*
+*Last updated: 2026-04-05 (v1.2.0 — Phase 1.6 complete; Phase 1.7 added; Experiments section added; Phase 8.5 added: Zenus-native model — domain tokenizer, QLoRA distillation pipeline, GGUF CPU deployment, RL continuous improvement, Coconut latent planning, BitNet ternary research path, full cost/time estimates)*
