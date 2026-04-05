@@ -382,7 +382,7 @@ pytest tests/unit/ -v
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
-### What's working now (v1.1.0)
+### What's working now (v1.2.0)
 - Natural language → validated system operations (IntentIR contract)
 - Transaction-based undo/rollback (`zenus rollback`)
 - Dry-run mode — preview before any execution
@@ -392,13 +392,14 @@ See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 - Multi-LLM support (Anthropic, OpenAI, DeepSeek, Ollama/local)
 - TUI dashboard, voice interface (STT), web search
 - Self-reflection, Tree of Thoughts, goal inference, knowledge graph
+- MCP server and client mode
+- Full agentic harness: hooks, plan mode, skills, session store, NotebookOps, TaskOps, ScheduleOps, WorktreeOps
 
 ### Near-term
-- MCP (Model Context Protocol) support
 - Voice: TTS completion and conversational flow
-- Security audit (OWASP benchmark)
-- Plugin/skill system
-- Streaming output in TUI
+- Parallel execution benchmarks and live progress visualization
+- Per-step atomic checkpointing and crash recovery
+- OpenTelemetry distributed trace export
 
 ### Long-term (toward Zenus as OS)
 - Persistent world model across reboots
