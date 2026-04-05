@@ -80,7 +80,7 @@ These items were identified before the first public release. All are prerequisit
   - Tool names: `{ToolName}__{action_name}` (e.g. `FileOps__read_file`)
   - Privilege tiers enforced: privileged tools (ShellOps, CodeExec) excluded by default
   - Configurable via `mcp.server.*` in `config.yaml`; start with `zenus mcp-server`
-  - Supports `stdio` transport (Claude Code / Cline) and `sse` transport (HTTP clients)
+  - Supports `stdio` transport and `sse` transport (HTTP clients)
 - [x] **MCP client mode** ✅ (`zenus_core/mcp/client.py` — v1.2.0)
   - `MCPClientRegistry` discovers remote tools from external MCP servers at startup
   - Tools injected as `mcp__{server}__{tool}` into the Zenus tool registry
@@ -103,6 +103,85 @@ These items were identified before the first public release. All are prerequisit
 - [ ] **Concrete benchmarks**: measure and document real wall-clock speedups for representative parallel workloads (batch file ops, multi-package install, concurrent git queries); publish results in `docs/PERFORMANCE.md`
 - [ ] **Execution plan visualization**: before execution, show which steps will run in parallel (dependency graph rendered in the TUI and as a Rich table in CLI)
 - [ ] **Parallel progress display**: when steps run concurrently, show live per-step status (running / done / failed) rather than a sequential list
+
+---
+
+## Phase 1.6: Agentic Harness Hardening — target: by September 2026
+
+*Each entry is classified by **Impact** (H/M/L) and **Adaptation Difficulty** for Zenus (H/M/L)*
+
+### 1.6.1 Hook Pipeline — PreToolUse / PostToolUse [Impact: H | Difficulty: M]
+
+- [ ] **PreToolUse hooks**: configurable shell or Python callbacks invoked before any tool executes
+  - Can mutate tool inputs, deny execution based on conditions, or emit structured audit entries
+  - Configured in `config.yaml` under `hooks.pre_tool_use[].match` + `hooks.pre_tool_use[].command`
+- [ ] **PostToolUse hooks**: callbacks invoked after tool execution with access to the full result
+  - Can transform outputs, trigger notifications, write structured events, or chain follow-up actions
+- [ ] `/hooks` slash command: list all configured hooks, show which fired last session, test a hook inline
+
+### 1.6.2 Plan Mode [Impact: H | Difficulty: M]
+
+- [ ] **Plan-only execution mode**: agent proposes a complete, numbered step-by-step plan and cannot execute any step until the user explicitly approves the full plan
+  - `EnterPlanMode` / `ExitPlanMode` as callable tools so agents can self-restrict while reasoning
+  - `/plan` slash command to toggle plan mode interactively in CLI and TUI
+  - Design note: `SandboxedAdaptivePlanner` already exists — this adds a hard gate that prevents any side-effectful tool from firing while in plan mode
+
+### 1.6.3 Context & Session Management [Impact: H | Difficulty: M]
+
+- [ ] **Context window compaction** (`/compact`): summarize and compress conversation history as token count approaches model context limits
+  - Triggered manually or automatically when >80% of context is consumed
+  - Preserves intent, tool call history, and key facts; discards verbatim intermediate output
+  - Summary written back as a synthetic assistant turn; model continues without losing state
+- [ ] **Multi-directory context** (`/add-dir`): add additional working directories to the active session
+  - Zenus currently operates on a single `cwd`; `/add-dir` enables monorepo or multi-package workflows
+  - Each directory is resolved, validated for access permissions, and added to the file tool search roots
+- [ ] **Session resume**: persist full session state (conversation, tool history, intent, cost) to disk
+  - Sessions get a short auto-generated name and a monotonic ID
+  - `/session` command to list, inspect, and resume past sessions
+  - `zenus resume <session-id>` from the CLI
+
+### 1.6.4 Background Task System [Impact: H | Difficulty: M]
+
+- [ ] **Formal task lifecycle tools**: `TaskCreate`, `TaskList`, `TaskGet`, `TaskStop`, `TaskUpdate`, `TaskOutput`
+  - Agents can spawn long-running background tasks and poll their stdout/stderr mid-execution
+  - Tasks survive session boundaries when persisted; accessible via `/tasks` command
+  - Design note: Zenus already has a `ThreadPoolExecutor` background queue — this adds a user-visible, agent-addressable API on top
+- [ ] **ScheduleCronTool**: agent-initiated cron registration — register a recurring job from within an execution plan
+  - Integrates with Phase 6.1 Scheduled Tasks; generates a crontab entry or internal scheduler record
+- [ ] **RemoteTriggerTool**: fire a named remote agent trigger from within a local execution (webhook-style callback to a registered endpoint)
+
+### 1.6.5 Git Worktree Support [Impact: H | Difficulty: L]
+
+- [ ] **EnterWorktree / ExitWorktree tools**: create an isolated git worktree for risky or exploratory code changes
+  - Agent works exclusively in the worktree; main working tree is never modified
+  - On `ExitWorktree`: cleaned up automatically if no net changes; branch name returned to caller if changes were committed
+  - Pairs naturally with Plan Mode and the Phase 5.5 Sandboxed Intent Simulation
+  - This is a low-difficulty, high-safety win — the `git worktree` plumbing is already in git
+
+### 1.6.6 Developer Experience Primitives [Impact: M | Difficulty: L]
+
+- [ ] **`/doctor`**: system diagnostics — verify API reachability, config schema validity, tool prerequisites, MCP server connectivity, and Python environment health; print a clear pass/fail table
+- [ ] **ToolSearchTool**: allow agents to search the available tool registry by name or description at runtime — essential once the plugin ecosystem grows beyond a handful of tools
+- [ ] **AskUserQuestion as a formal tool**: agents invoke `AskUserQuestion` to pause execution and prompt the user for structured input (options, free-text, confirmation) mid-plan
+  - Currently user prompts are handled implicitly in the Orchestrator's confirmation logic; formalizing this as a tool gives agents explicit control and structured return values
+- [ ] **SleepTool**: agent-callable sleep/wait primitive — useful for polling loops, rate-limit back-off, and timed retry patterns without spinning
+- [ ] **`/output-style`**: switch between output rendering modes (rich Markdown, compact plain-text, machine-readable JSON) — enables piping Zenus output into other tools or scripts
+
+### 1.6.7 Skills Registry [Impact: H | Difficulty: M]
+
+- [ ] **User-extensible skill system**: auto-discover and load `.zenus/skills/*.md` files as slash commands at startup
+  - Each skill is a Markdown file with a YAML front-matter trigger, description, and natural-language prompt body
+  - Skills compose with MCP and plugin tools; a skill can reference any registered tool action
+- [ ] **`/skills` command**: list available built-in and user-defined skills, show detail, reload without restart
+- [ ] **Bundled built-in skills**: ship a curated default skill set (e.g. `commit`, `review-pr`, `simplify`, `explain`, `test-coverage`) that work out of the box
+- [ ] **MCP skill builders**: expose bundled skills as MCP tools so external MCP clients can invoke them
+
+### 1.6.8 Jupyter Notebook Support [Impact: M | Difficulty: M]
+
+- [ ] **NotebookEditTool**: read and edit Jupyter `.ipynb` cells with proper cell-type awareness (code, markdown, raw)
+  - Understands notebook structure: cell indices, cell outputs, kernel metadata
+  - Enables data science and ML workflows where notebooks are primary artifacts
+  - Pairs with the existing Screenshot Analysis (Phase 3.2) and Data Visualization (Phase 3.3)
 
 ---
 
@@ -303,6 +382,13 @@ These items were identified before the first public release. All are prerequisit
   - SAST integration
   - Compliance validation
 
+- [ ] **LSP Integration** [Impact: H | Difficulty: H — from CC analysis]
+  - Language Server Protocol client: connect to running language servers (pylsp, rust-analyzer, tsserver, etc.)
+  - Expose `LSPTool` actions: go-to-definition, hover documentation, find references, get diagnostics, rename symbol
+  - Agent uses LSP data to ground code operations in actual type information rather than text heuristics
+  - Enables accurate multi-file refactoring, real-time error detection before running code, and navigation of large codebases
+  - Design note: high difficulty because LSP is stateful (server process per workspace) and protocol-heavy, but the payoff for code-centric workflows is substantial
+
 ---
 
 ## Phase 5: Collaboration & Enterprise — target: by June 2027
@@ -330,6 +416,25 @@ These items were identified before the first public release. All are prerequisit
   - Isolated environments per project
   - Shared resources (tools, configs)
   - Workspace templates
+
+- [ ] **Session sharing** [Impact: M | Difficulty: M — from CC analysis]
+  - Export a session (conversation, plan, results) as a portable artifact
+  - Import and replay a shared session on another machine or user account
+  - Shareable URL if a hosted Zenus service is available (aligns with Phase 3.3 Web Dashboard)
+
+- [ ] **Settings sync** [Impact: M | Difficulty: M — from CC analysis]
+  - Sync `config.yaml` user preferences and skill definitions across machines via a cloud store or git repo
+  - Conflict resolution: last-write-wins for scalar values, merge for lists (tools deny-list, MCP servers)
+  - Local-only mode remains the default; sync is opt-in
+
+- [ ] **GitHub App integration wizard** [Impact: M | Difficulty: M — from CC analysis]
+  - `/install-github-app`: guided flow to install the Zenus GitHub App on a repo or org
+  - Enables webhook-driven triggers (PR opened → Zenus runs review), automated commit signing, and fine-grained token management
+  - Foundation for Phase 4.1 CI/CD automation
+
+- [ ] **Slack App integration wizard** [Impact: M | Difficulty: M — from CC analysis]
+  - `/install-slack-app`: guided OAuth flow to connect Zenus to a Slack workspace
+  - Enables `zenus` slash command from Slack, result posting, and alert delivery (links Phase 6.2 Contextual Suggestions to chat)
 
 ### 5.2 Enterprise Features
 
@@ -436,6 +541,16 @@ These ideas emerged during v1.x development and will be revisited when Phase 5 i
   - Inventory management (Ansible-like)
   - Parallel execution across fleet
 
+- [ ] **Upstream proxy support** [Impact: M | Difficulty: L — from CC analysis]
+  - Route all Zenus API calls through a configurable HTTP proxy (`api.proxy_url` in `config.yaml`)
+  - Required for enterprise deployments behind corporate firewalls or data-residency requirements
+  - Also enables local proxy for cost interception, logging, and rate-limit pooling across a team
+
+- [ ] **Teleport / remote agent deployment** [Impact: H | Difficulty: H — from CC analysis]
+  - `zenus teleport <host>`: install and launch a Zenus agent on a remote host over SSH, then control it from the local TUI
+  - Zenus becomes the "nerve centre" and the remote instance becomes a worker
+  - Foundation for Phase 7.1 fleet orchestration and the OS-layer agent model in Phase 10
+
 - [ ] **Distributed Tasks**
   - Map-reduce style operations
   - Data pipelines across machines
@@ -479,6 +594,12 @@ These ideas emerged during v1.x development and will be revisited when Phase 5 i
   - Explain every decision in plain language
   - Confidence scores per action
   - Reasoning chains visualized
+  - **Extended thinking visualization** (`/thinkback`, `/thinkback-play`) [Impact: M | Difficulty: M — from CC analysis]: surface the model's full chain-of-thought as a navigable, playable transcript; lets users inspect *why* an action was chosen, not just *what* was chosen; pairs with Tree of Thoughts (already in Phase 2.2)
+
+- [ ] **Per-tool sandbox toggle** [Impact: M | Difficulty: L — from CC analysis]
+  - `/sandbox-toggle`: flip sandboxing on or off for specific tools interactively during a session
+  - Useful when a trusted plugin needs temporary elevated access without permanently changing privilege tiers
+  - Decision is logged and expires at session end; never persisted silently
 
 - [ ] **Kill Switches**
   - Emergency stop (Ctrl+C+C)
@@ -658,4 +779,4 @@ The Python layer keeps the AI and ML ecosystem. The lower layer provides tighter
 
 ---
 
-*Last updated: 2026-03-21 (v1.1.0 — Phase 1.5 added: OWASP security audit, MCP support, voice completion, parallel execution benchmarks; LLM-based search classification replacing SearchDecisionEngine)*
+*Last updated: 2026-04-05 (v1.1.0 — Phase 1.6 added: systematic CC/claw-code harness analysis — hooks pipeline, plan mode, context compaction, multi-dir context, session resume, background task system, git worktree support, developer experience primitives, skills registry, notebook support; LSP integration added to Phase 4.3; session sharing, settings sync, GitHub/Slack app wizards added to Phase 5.1; upstream proxy and teleport added to Phase 7.1; extended thinking visualization and per-tool sandbox toggle added to Phase 8.1)*
