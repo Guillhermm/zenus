@@ -21,6 +21,13 @@ from zenus_core.tools.shell_ops import ShellOps
 from zenus_core.tools.code_exec import CodeExec
 from zenus_core.tools.web_search import WebSearchTool
 
+# Agentic harness tools
+from zenus_core.tools.task_ops import TaskOps
+from zenus_core.tools.schedule_ops import ScheduleOps
+from zenus_core.tools.worktree_ops import WorktreeOps
+from zenus_core.tools.dev_ops import ToolSearch, AskUserQuestion, SleepTool
+from zenus_core.tools.notebook_ops import NotebookOps
+
 TOOLS = {
     # Core tools
     "FileOps":      FileOps(),
@@ -43,6 +50,15 @@ TOOLS = {
 
     # Network/research tools
     "WebSearch":    WebSearchTool(),
+
+    # Agentic harness tools
+    "TaskOps":         TaskOps(),
+    "ScheduleOps":     ScheduleOps(),
+    "WorktreeOps":     WorktreeOps(),
+    "ToolSearch":      ToolSearch(),
+    "AskUserQuestion": AskUserQuestion(),
+    "SleepTool":       SleepTool(),
+    "NotebookOps":     NotebookOps(),
 }
 
 

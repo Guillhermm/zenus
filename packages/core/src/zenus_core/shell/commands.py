@@ -451,6 +451,321 @@ def check_and_suggest_patterns(orchestrator):
         pass
 
 
+def handle_skills_command(subcommand: str = "list", arg: str = "") -> None:
+    """
+    Skills management command.
+
+    Subcommands:
+        list (default) — show all available skills
+        reload         — re-scan skill directories
+        show <trigger> — show the full prompt for a skill
+        invoke <trigger> [args] — invoke a skill's prompt
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from zenus_core.skills.registry import get_skills_registry
+
+    console = Console()
+    registry = get_skills_registry()
+
+    if subcommand in ("list", ""):
+        skills = registry.list_skills()
+        if not skills:
+            console.print("[yellow]No skills loaded.[/yellow]")
+            console.print(
+                "[dim]Add .md files to .zenus/skills/ or ~/.zenus/skills/ "
+                "to create custom skills.[/dim]"
+            )
+            return
+
+        console.print()
+        table = Table(
+            title=f"Zenus Skills ({len(skills)})",
+            show_header=True, header_style="bold cyan", box=None, padding=(0, 2)
+        )
+        table.add_column("Trigger", style="cyan", no_wrap=True)
+        table.add_column("Description")
+        table.add_column("Source", style="dim")
+
+        for skill in skills:
+            src = "bundled" if skill.bundled else skill.source.split("/")[-1]
+            table.add_row(f"/{skill.trigger}", skill.description, src)
+
+        console.print(table)
+        console.print()
+        console.print("[dim]Use: /<trigger> [args]  or  skills show <trigger>[/dim]")
+        console.print()
+
+    elif subcommand == "reload":
+        count = registry.reload()
+        console.print(f"[green]✓ Skills reloaded: {count} skill(s) available.[/green]")
+
+    elif subcommand == "show":
+        if not arg:
+            console.print("[red]Usage: skills show <trigger>[/red]")
+            return
+        skill = registry.get(arg)
+        if not skill:
+            console.print(f"[red]Skill '{arg}' not found.[/red]")
+            return
+        console.print()
+        console.print(f"[bold cyan]{skill.name}[/bold cyan] (/{skill.trigger})")
+        console.print(f"[dim]{skill.description}[/dim]")
+        console.print()
+        console.print(skill.prompt)
+        console.print()
+
+    elif subcommand == "invoke":
+        if not arg:
+            console.print("[red]Usage: skills invoke <trigger> [args][/red]")
+            return
+        parts = arg.split(None, 1)
+        trigger = parts[0]
+        invoke_args = parts[1] if len(parts) > 1 else ""
+        prompt = registry.invoke(trigger, invoke_args)
+        if prompt is None:
+            console.print(f"[red]Skill '{trigger}' not found.[/red]")
+            return
+        console.print()
+        console.print(prompt)
+        console.print()
+
+    else:
+        console.print(f"[red]Unknown subcommand '{subcommand}'[/red]")
+        console.print("[dim]Usage: skills [list|reload|show|invoke][/dim]")
+
+
+def handle_session_command(orchestrator, subcommand: str = "list", arg: str = "") -> None:
+    """
+    Session persistence command.
+
+    Subcommands:
+        list (default) — list saved sessions
+        save           — save current session
+        resume <id>    — restore a session into current memory
+        delete <id>    — delete a saved session
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from zenus_core.memory.session_store import get_session_store
+
+    console = Console()
+    store = get_session_store()
+
+    if subcommand in ("list", ""):
+        sessions = store.list_sessions()
+        if not sessions:
+            console.print("[yellow]No saved sessions.[/yellow]")
+            console.print("[dim]Use 'session save' to save the current session.[/dim]")
+            return
+
+        console.print()
+        table = Table(
+            title="Saved Sessions",
+            show_header=True, header_style="bold cyan", box=None, padding=(0, 2)
+        )
+        table.add_column("ID", style="cyan", no_wrap=True, width=10)
+        table.add_column("Name")
+        table.add_column("Intents", justify="right", width=8)
+        table.add_column("Created")
+        table.add_column("Directory", style="dim")
+
+        for s in sessions:
+            table.add_row(
+                s["id"], s["name"], str(s["intents"]),
+                s["created_at"][:16], s["cwd"][:40]
+            )
+        console.print(table)
+        console.print()
+
+    elif subcommand == "save":
+        if not orchestrator.use_memory:
+            console.print("[yellow]Memory is disabled — nothing to save.[/yellow]")
+            return
+        sid = store.save(orchestrator.session_memory)
+        if sid:
+            console.print(f"[green]✓ Session saved: {sid}[/green]")
+        else:
+            console.print("[red]Failed to save session (persistence may be disabled in config).[/red]")
+
+    elif subcommand == "resume":
+        if not arg:
+            console.print("[red]Usage: session resume <id>[/red]")
+            return
+        data = store.load(arg)
+        if not data:
+            console.print(f"[red]Session '{arg}' not found.[/red]")
+            return
+        if orchestrator.use_memory:
+            store.restore_into(data, orchestrator.session_memory)
+        console.print(
+            f"[green]✓ Session '{data['name']}' ({data['id']}) resumed.[/green]\n"
+            f"[dim]{len(data.get('intent_history', []))} intent(s) restored.[/dim]"
+        )
+
+    elif subcommand == "delete":
+        if not arg:
+            console.print("[red]Usage: session delete <id>[/red]")
+            return
+        ok = store.delete(arg)
+        if ok:
+            console.print(f"[green]✓ Session '{arg}' deleted.[/green]")
+        else:
+            console.print(f"[red]Session '{arg}' not found.[/red]")
+
+    else:
+        console.print(f"[red]Unknown subcommand '{subcommand}'[/red]")
+        console.print("[dim]Usage: session [list|save|resume|delete][/dim]")
+
+
+def handle_tasks_command(subcommand: str = "list", arg: str = "") -> None:
+    """
+    Background task management command.
+
+    Subcommands:
+        list (default) — list all background tasks
+        get <id>       — show details for a task
+        stop <id>      — cancel a pending task
+        output <id>    — show output of a completed task
+        purge          — remove completed/failed/cancelled tasks
+    """
+    from rich.console import Console
+    from zenus_core.tools.task_ops import TaskOps
+
+    console = Console()
+    ops = TaskOps()
+
+    if subcommand in ("list", ""):
+        console.print()
+        console.print(ops.list())
+        console.print()
+    elif subcommand == "get":
+        if not arg:
+            console.print("[red]Usage: tasks get <task_id>[/red]")
+            return
+        console.print(ops.get(arg))
+    elif subcommand == "stop":
+        if not arg:
+            console.print("[red]Usage: tasks stop <task_id>[/red]")
+            return
+        console.print(ops.stop(arg))
+    elif subcommand == "output":
+        if not arg:
+            console.print("[red]Usage: tasks output <task_id>[/red]")
+            return
+        console.print(ops.output(arg))
+    elif subcommand == "purge":
+        console.print(ops.purge())
+    else:
+        console.print(f"[red]Unknown subcommand '{subcommand}'[/red]")
+        console.print("[dim]Usage: tasks [list|get|stop|output|purge][/dim]")
+
+
+def handle_output_style_command(style: str = "") -> None:
+    """
+    Switch the terminal output style.
+
+    Styles: rich (default), plain, compact, json
+    """
+    from rich.console import Console
+    console = Console()
+
+    valid = ("rich", "plain", "compact", "json")
+    if not style:
+        try:
+            from zenus_core.config.loader import get_config
+            current = get_config().output_style.style
+        except Exception:
+            current = "rich"
+        console.print(f"Current output style: [cyan]{current}[/cyan]")
+        console.print(f"[dim]Valid styles: {', '.join(valid)}[/dim]")
+        return
+
+    if style not in valid:
+        console.print(f"[red]Unknown style '{style}'. Valid: {', '.join(valid)}[/red]")
+        return
+
+    try:
+        import yaml
+        import os
+        from pathlib import Path
+        search_paths = [
+            Path(os.environ.get("ZENUS_CONFIG", "")) if os.environ.get("ZENUS_CONFIG") else None,
+            Path("config.yaml"), Path("zenus.yaml"),
+            Path.home() / ".zenus" / "config.yaml",
+            Path.home() / ".config" / "zenus" / "config.yaml",
+        ]
+        config_path = next((p for p in search_paths if p and p.exists()), None)
+        if config_path:
+            with open(config_path) as f:
+                data = yaml.safe_load(f) or {}
+            data.setdefault("output_style", {})["style"] = style
+            with open(config_path, "w") as f:
+                yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+            # Invalidate config cache
+            from zenus_core.config.loader import get_config
+            get_config()  # triggers reload on next access
+    except Exception:
+        pass
+
+    console.print(f"[green]✓ Output style set to '{style}'[/green]")
+    console.print("[dim]Changes take effect on next command.[/dim]")
+
+
+def handle_hooks_command(subcommand: str = "list") -> None:
+    """
+    Hook management command.
+
+    Subcommands:
+        list (default) — show all configured pre/post hooks
+        test <tool> <action> — dry-run pre-hooks for a given tool.action
+    """
+    from rich.console import Console
+    from rich.table import Table
+    from zenus_core.hooks.pipeline import get_hook_pipeline
+
+    console = Console()
+    pipeline = get_hook_pipeline()
+    hooks = pipeline.list_hooks()
+
+    if subcommand in ("list", ""):
+        console.print()
+
+        for phase in ("pre", "post"):
+            label = "PreToolUse" if phase == "pre" else "PostToolUse"
+            entries = hooks[phase]
+
+            if not entries:
+                console.print(f"[dim]{label}: no hooks configured[/dim]")
+                continue
+
+            table = Table(
+                title=label,
+                show_header=True,
+                header_style="bold cyan",
+                box=None,
+                padding=(0, 2),
+            )
+            table.add_column("Match", style="cyan", no_wrap=True)
+            table.add_column("Command")
+
+            for e in entries:
+                table.add_row(e["match"], e["command"])
+
+            console.print(table)
+            console.print()
+
+        console.print(
+            "[dim]Configure hooks under hooks.pre_tool_use / hooks.post_tool_use "
+            "in config.yaml[/dim]"
+        )
+        console.print()
+
+    else:
+        console.print(f"[red]Unknown subcommand '{subcommand}'[/red]")
+        console.print("[dim]Usage: hooks [list][/dim]")
+
+
 def handle_workflow_command(orchestrator, subcommand: str = "list", *args):
     """
     Workflow management commands

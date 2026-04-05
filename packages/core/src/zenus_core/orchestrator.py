@@ -549,7 +549,16 @@ class Orchestrator:
             # Step 6: Execute plan
             if dry_run:
                 return self._format_dry_run(intent)
-            
+
+            # Plan mode gate — show plan and wait for user approval
+            try:
+                from zenus_core.brain.plan_mode import get_plan_mode_manager, PlanDecision
+                _plan_decision = get_plan_mode_manager().gate(intent)
+                if _plan_decision == PlanDecision.DENIED:
+                    return "Execution aborted — plan rejected in plan mode."
+            except Exception:
+                pass  # Never let plan mode crash abort execution
+
             # Show goal
             print_goal(intent.goal)
             
@@ -1275,7 +1284,10 @@ class Orchestrator:
         
         console.print("\n[bold cyan]Zenus Interactive Shell[/bold cyan]")
         console.print("Type 'exit' or 'quit' to exit")
-        console.print("Special commands: status, memory, model, history, rollback, update, explain, workflow")
+        console.print(
+            "Special commands: status, memory, model, history, rollback, update, explain, workflow\n"
+            "  hooks, plan, skills, compact, add-dir <path>, session, tasks, doctor, output-style"
+        )
         if enhanced_shell:
             console.print("Enhanced mode: Tab completion, Ctrl+R search, multi-line (Esc+Enter)")
         else:
@@ -1343,6 +1355,96 @@ class Orchestrator:
                     subcommand = parts[1] if len(parts) > 1 else "status"
                     args = parts[2:] if len(parts) > 2 else []
                     handle_model_command(subcommand, args)
+                    continue
+
+                # ── Agentic harness commands ──────────────────────────────
+                if user_input.startswith("hooks"):
+                    from zenus_core.shell.commands import handle_hooks_command
+                    parts = user_input.split()
+                    handle_hooks_command(parts[1] if len(parts) > 1 else "list")
+                    continue
+
+                if user_input in ("plan", "plan on", "plan off", "plan toggle"):
+                    from zenus_core.brain.plan_mode import get_plan_mode_manager
+                    mgr = get_plan_mode_manager()
+                    if "off" in user_input:
+                        mgr.disable()
+                        console.print("[yellow]Plan mode disabled.[/yellow]")
+                    elif "on" in user_input:
+                        mgr.enable()
+                        console.print("[green]Plan mode enabled — plans will require approval.[/green]")
+                    else:
+                        state = mgr.toggle()
+                        console.print(
+                            f"[green]Plan mode enabled — plans will require approval.[/green]"
+                            if state else "[yellow]Plan mode disabled.[/yellow]"
+                        )
+                    continue
+
+                if user_input.startswith("skills"):
+                    from zenus_core.shell.commands import handle_skills_command
+                    parts = user_input.split(None, 2)
+                    subcommand = parts[1] if len(parts) > 1 else "list"
+                    arg = parts[2] if len(parts) > 2 else ""
+                    handle_skills_command(subcommand, arg)
+                    continue
+
+                if user_input == "compact":
+                    if self.use_memory:
+                        from zenus_core.context.compactor import compact_session
+                        summary = compact_session(self.session_memory)
+                        if summary:
+                            console.print("[green]✓ Session compacted.[/green]")
+                            console.print(f"[dim]{summary[:200]}…[/dim]")
+                        else:
+                            console.print("[yellow]Nothing to compact.[/yellow]")
+                    else:
+                        console.print("[yellow]Memory is disabled.[/yellow]")
+                    continue
+
+                if user_input.startswith("add-dir "):
+                    extra_dir = user_input[len("add-dir "):].strip()
+                    from pathlib import Path as _Path
+                    p = _Path(extra_dir).expanduser().resolve()
+                    if not p.is_dir():
+                        console.print(f"[red]Not a directory: {extra_dir}[/red]")
+                    else:
+                        try:
+                            from zenus_core.config.loader import get_config
+                            cfg = get_config()
+                            if str(p) not in cfg.safety.allowed_paths:
+                                cfg.safety.allowed_paths.append(str(p))
+                            console.print(f"[green]✓ Added to session context: {p}[/green]")
+                        except Exception as e:
+                            console.print(f"[red]Failed to add directory: {e}[/red]")
+                    continue
+
+                if user_input.startswith("session"):
+                    from zenus_core.shell.commands import handle_session_command
+                    parts = user_input.split(None, 2)
+                    subcommand = parts[1] if len(parts) > 1 else "list"
+                    arg = parts[2] if len(parts) > 2 else ""
+                    handle_session_command(self, subcommand, arg)
+                    continue
+
+                if user_input.startswith("tasks"):
+                    from zenus_core.shell.commands import handle_tasks_command
+                    parts = user_input.split(None, 2)
+                    subcommand = parts[1] if len(parts) > 1 else "list"
+                    arg = parts[2] if len(parts) > 2 else ""
+                    handle_tasks_command(subcommand, arg)
+                    continue
+
+                if user_input == "doctor":
+                    from zenus_core.shell.doctor import run_doctor
+                    run_doctor()
+                    continue
+
+                if user_input.startswith("output-style"):
+                    parts = user_input.split()
+                    style = parts[1] if len(parts) > 1 else ""
+                    from zenus_core.shell.commands import handle_output_style_command
+                    handle_output_style_command(style)
                     continue
 
                 # Check for --explain flag

@@ -176,6 +176,51 @@ mcp:
     #   transport: sse
     #   url: "http://localhost:8080/sse"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 1.6 — Agentic Harness Hardening
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Hook Pipeline — run shell commands before/after every tool execution
+# Pre-hooks that exit non-zero DENY the tool call.
+# Post-hooks observe results; their exit code is logged only.
+hooks:
+  pre_tool_use:  []
+  # Example — deny rm -rf in bash commands:
+  # - match: "ShellOps"
+  #   command: "echo \"[hook] ShellOps call: $ZENUS_ACTION\" && exit 0"
+  #   timeout_seconds: 5
+  # - match: "FileOps.delete_file"
+  #   command: "bash ~/.zenus/hooks/pre_delete.sh"
+  #   timeout_seconds: 10
+
+  post_tool_use: []
+  # Example — log every tool result to a file:
+  # - match: "*"
+  #   command: "echo \"$(date) $ZENUS_TOOL.$ZENUS_ACTION\" >> ~/.zenus/audit.log"
+  #   timeout_seconds: 3
+
+# Plan Mode — agent proposes the full plan; you approve before any step runs
+plan_mode:
+  enabled: false                  # Toggle with /plan command at runtime
+  auto_approve_low_risk: false    # Auto-approve risk-0 (READ-only) steps
+
+# Skills Registry — user-extensible slash commands loaded from Markdown files
+skills:
+  enabled: true
+  skills_dir:                     # Defaults to .zenus/skills/ then ~/.zenus/skills/
+  load_bundled: true              # Load built-in skills (commit, review-pr, etc.)
+
+# Session Persistence — save and resume sessions across restarts
+session:
+  persist: true
+  sessions_dir:                   # Defaults to ~/.zenus/sessions/
+  max_sessions: 50
+  compact_threshold: 0.80         # Auto-compact when 80% of context is used
+
+# Output Style — rendering mode for all terminal output
+output_style:
+  style: rich                     # rich | plain | compact | json
+
 # Custom Settings (optional)
 custom:
   # Add your own settings here

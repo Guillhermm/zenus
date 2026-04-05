@@ -111,15 +111,39 @@ def execute_plan(
                 logger.log_step_result(step.tool, step.action, error_msg, False)
             raise ValueError(error_msg)
         
+        # PreToolUse hook — deny if hook exits non-zero
+        try:
+            from zenus_core.hooks.pipeline import get_hook_pipeline
+            hook_result = get_hook_pipeline().execute_pre(step.tool, step.action)
+            if not hook_result.allowed:
+                deny_msg = (
+                    f"[hook denied] {step.tool}.{step.action} — "
+                    f"hook '{hook_result.hook_match}' exited {hook_result.exit_code}"
+                    + (f": {hook_result.stderr}" if hook_result.stderr else "")
+                )
+                if logger:
+                    logger.log_step_result(step.tool, step.action, deny_msg, False)
+                results.append(deny_msg)
+                continue
+        except Exception:
+            pass  # Never let a hook crash abort the whole pipeline
+
         # Execute with error recovery
         try:
             result = action(**step.args)
             if get_debug_flags().execution:
                 print(f"  Done: {step.tool}.{step.action}: {result}")
-            
+
+            # PostToolUse hook (fire-and-forget in daemon thread)
+            try:
+                from zenus_core.hooks.pipeline import get_hook_pipeline
+                get_hook_pipeline().execute_post(step.tool, step.action, str(result))
+            except Exception:
+                pass
+
             if logger:
                 logger.log_step_result(step.tool, step.action, str(result), True)
-            
+
             results.append(str(result))
                 
         except Exception as e:

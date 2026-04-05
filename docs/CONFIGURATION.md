@@ -692,6 +692,134 @@ features:
 
 ---
 
+---
+
+## Phase 1.6 — Advanced Features
+
+### Hook Pipeline (PreToolUse / PostToolUse)
+
+Run custom shell commands before or after any tool action. A pre-hook that exits non-zero denies the action; post-hooks run asynchronously and never block.
+
+```yaml
+hooks:
+  pre_tool_use:
+    - match: "ShellOps"          # tool name, "Tool.action", or "*" for all
+      command: "echo pre ShellOps"
+      timeout_seconds: 10        # default 10
+
+  post_tool_use:
+    - match: "*"
+      command: "logger 'zenus tool used'"
+      timeout_seconds: 10
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `hooks.pre_tool_use` | list | `[]` | Commands run before each matching tool action |
+| `hooks.post_tool_use` | list | `[]` | Commands run after each matching tool action |
+| `match` | str | — | fnmatch pattern against `ToolName` or `ToolName.action_name` |
+| `command` | str | — | Shell command (runs via `sh -c`) |
+| `timeout_seconds` | int | `10` | Max seconds before the hook is killed |
+
+**Match examples:** `"ShellOps"`, `"FileOps.delete_file"`, `"*"`, `"*.read_*"`
+
+---
+
+### Plan Mode
+
+When enabled, Zenus presents the full execution plan to the user for approval before running any step.
+
+```yaml
+plan_mode:
+  enabled: false              # start with plan mode off
+  auto_approve_low_risk: false # auto-approve plans where every step is READ-only (risk=0)
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `plan_mode.enabled` | bool | `false` | Activate plan gate on startup |
+| `plan_mode.auto_approve_low_risk` | bool | `false` | Skip prompt when all steps are risk=0 |
+
+Toggle at runtime: `/plan` in the interactive shell.
+
+---
+
+### Skills Registry
+
+User-extensible slash commands loaded from Markdown files. Skills are invoked with `/skill-name [args]`.
+
+```yaml
+skills:
+  enabled: true             # set false to disable all skills
+  load_bundled: true        # load built-in skills (commit, review-pr, etc.)
+  skills_dir: null          # extra directory of *.md skill files (optional)
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `skills.enabled` | bool | `true` | Enable/disable the skills system |
+| `skills.load_bundled` | bool | `true` | Load the built-in bundled skills |
+| `skills.skills_dir` | str\|null | `null` | Extra directory to load `*.md` skill files from |
+
+**Skill file format** (`~/.zenus/skills/my-skill.md`):
+
+```markdown
+---
+name: My Skill
+trigger: my-skill
+description: Does something useful
+---
+
+Do the thing with {args}.
+```
+
+Discovery order (highest priority wins): project `.zenus/skills/` → `~/.zenus/skills/` → `skills_dir` → bundled.
+
+---
+
+### Session Store
+
+Persist conversation sessions to disk so they can be resumed later.
+
+```yaml
+session:
+  persist: true              # save sessions to disk
+  sessions_dir: null         # override ~/.zenus/sessions/
+  max_sessions: 50           # auto-prune oldest when exceeded
+  compact_threshold: 0.80   # trigger /compact when context hits 80%
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `session.persist` | bool | `true` | Write session JSON files to disk |
+| `session.sessions_dir` | str\|null | `null` | Override default `~/.zenus/sessions/` directory |
+| `session.max_sessions` | int | `50` | Oldest sessions are pruned when this is exceeded |
+| `session.compact_threshold` | float | `0.80` | 0.0–1.0; auto-compacts when `token_count / max_tokens` exceeds this |
+
+Session files are stored at `~/.zenus/sessions/<id>.json` with permissions `0600`.
+
+---
+
+### Output Style
+
+Choose how Zenus renders its output.
+
+```yaml
+output_style:
+  style: rich   # rich | plain | compact | json
+```
+
+| Value | Description |
+|---|---|
+| `rich` | Full colour, icons, rich markdown (default) |
+| `plain` | Plain text, no ANSI colour codes |
+| `compact` | Minimal output — just the result |
+| `json` | Machine-readable JSON output |
+
+Change at runtime: `/output-style <style>` in the interactive shell.
+
+---
+
 **See Also:**
 - [CONFIG_MIGRATION_GUIDE.md](CONFIG_MIGRATION_GUIDE.md) - Migrate from .env
 - [ERROR_HANDLING_GUIDE.md](ERROR_HANDLING_GUIDE.md) - Circuit breakers & retries

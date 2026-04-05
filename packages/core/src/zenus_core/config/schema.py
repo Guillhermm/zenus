@@ -230,6 +230,124 @@ class MCPConfig(BaseModel):
     client: MCPClientConfig = Field(default_factory=MCPClientConfig)
 
 
+class HookEntry(BaseModel):
+    """A single pre/post tool-use hook definition."""
+
+    match: str = Field(
+        description=(
+            "Tool or action pattern to match. "
+            "Examples: '*' (all tools), 'ShellOps' (all ShellOps actions), "
+            "'FileOps.delete_file' (specific action)."
+        )
+    )
+    command: str = Field(
+        description=(
+            "Shell command to run. Receives the tool name and action as "
+            "ZENUS_TOOL and ZENUS_ACTION environment variables. "
+            "PostToolUse hooks also receive ZENUS_RESULT."
+        )
+    )
+    timeout_seconds: int = Field(
+        default=10,
+        description="Maximum time to wait for the hook command to complete.",
+    )
+
+
+class HooksConfig(BaseModel):
+    """Pre- and post-tool-use hook pipeline configuration."""
+
+    pre_tool_use: List[HookEntry] = Field(
+        default_factory=list,
+        description=(
+            "Hooks invoked BEFORE a tool action executes. "
+            "A hook that exits non-zero denies the tool call."
+        ),
+    )
+    post_tool_use: List[HookEntry] = Field(
+        default_factory=list,
+        description=(
+            "Hooks invoked AFTER a tool action executes. "
+            "Exit code is logged but does not affect the result."
+        ),
+    )
+
+
+class PlanModeConfig(BaseModel):
+    """Plan-mode (read-only planning gate) configuration."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, Zenus proposes a full plan and waits for explicit "
+            "user approval before executing any step. Toggle with /plan."
+        ),
+    )
+    auto_approve_low_risk: bool = Field(
+        default=False,
+        description="Auto-approve steps with risk level 0 (READ-only) even in plan mode.",
+    )
+
+
+class SkillsConfig(BaseModel):
+    """Skills registry configuration."""
+
+    enabled: bool = Field(default=True, description="Enable skill discovery and /skills command.")
+    skills_dir: Optional[str] = Field(
+        default=None,
+        description=(
+            "Directory to scan for user-defined skills (*.md). "
+            "Defaults to .zenus/skills/ in the current working directory, "
+            "then ~/.zenus/skills/ as a fallback."
+        ),
+    )
+    load_bundled: bool = Field(
+        default=True,
+        description="Load the bundled built-in skills (commit, review-pr, simplify, etc.).",
+    )
+
+
+class SessionConfig(BaseModel):
+    """Session persistence and resume configuration."""
+
+    persist: bool = Field(
+        default=True,
+        description="Persist session state to disk for later resume.",
+    )
+    sessions_dir: Optional[str] = Field(
+        default=None,
+        description=(
+            "Directory to store session snapshots. "
+            "Defaults to ~/.zenus/sessions/."
+        ),
+    )
+    max_sessions: int = Field(
+        default=50,
+        description="Maximum number of saved sessions to retain (oldest pruned first).",
+    )
+    compact_threshold: float = Field(
+        default=0.80,
+        description=(
+            "Fraction of context window consumed before /compact triggers automatically "
+            "(0–1). Set to 1.0 to disable automatic compaction."
+        ),
+    )
+
+
+class OutputStyleConfig(BaseModel):
+    """Output style / rendering mode."""
+
+    style: str = Field(
+        default="rich",
+        description=(
+            "Rendering mode: "
+            "'rich' (default — coloured markdown, tables, panels), "
+            "'plain' (no colour, no markup), "
+            "'compact' (minimal whitespace), "
+            "'json' (machine-readable structured output)."
+        ),
+    )
+
+
 class ZenusConfig(BaseModel):
     """
     Main Zenus configuration
@@ -270,6 +388,13 @@ class ZenusConfig(BaseModel):
 
     # MCP integration
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+
+    # Hooks, plan mode, skills, session, output style
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
+    plan_mode: PlanModeConfig = Field(default_factory=PlanModeConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    session: SessionConfig = Field(default_factory=SessionConfig)
+    output_style: OutputStyleConfig = Field(default_factory=OutputStyleConfig)
 
     # Custom settings
     custom: Dict[str, Any] = Field(default_factory=dict, description="Custom settings")

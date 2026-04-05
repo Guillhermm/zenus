@@ -32,7 +32,9 @@ class ZenusCompleter(Completer):
     # Special commands
     SPECIAL_COMMANDS = [
         'status', 'memory', 'model', 'history', 'rollback',
-        'update', 'explain', 'workflow', 'help', 'exit', 'quit'
+        'update', 'explain', 'workflow', 'help', 'exit', 'quit',
+        'hooks', 'plan', 'skills', 'compact', 'add-dir', 'session',
+        'tasks', 'doctor', 'output-style',
     ]
     
     # Common action verbs for natural language
