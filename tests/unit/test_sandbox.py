@@ -46,7 +46,7 @@ class TestSandboxConstraintsInit:
         """Forbidden paths are also normalised"""
         from zenus_core.sandbox.constraints import SandboxConstraints
         sc = SandboxConstraints(forbidden_paths={"/etc"})
-        assert "/etc" in sc.forbidden_paths
+        assert os.path.realpath("/etc") in sc.forbidden_paths
 
     def test_default_max_execution_time(self):
         """Default max_execution_time is 30 seconds"""

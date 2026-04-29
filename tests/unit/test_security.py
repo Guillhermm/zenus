@@ -158,7 +158,8 @@ class TestFileOpsPathResolution:
             traversal = os.path.join(sub, "..", "sub")
             resolved = _resolve(traversal)
             assert ".." not in resolved
-            assert resolved == sub
+            # Use realpath for comparison — on macOS /var is a symlink to /private/var
+            assert resolved == os.path.realpath(sub)
 
 
 # ---------------------------------------------------------------------------
